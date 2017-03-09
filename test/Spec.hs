@@ -6,11 +6,11 @@ import Test.Hspec
 
 -- | Sample size
 sSize :: Int
-sSize = 30
+sSize = 20
 
 -- | Board size (each side)
 bSize :: Int
-bSize = 10
+bSize = 20
 
 main :: IO ()
 main = hspec $ do
@@ -30,11 +30,24 @@ main = hspec $ do
 
   describe "Oscillators" $ do
     it "blinkers oscillate with period 2" $
-      pendingWith "need to write up oscillators"
+      testOscillate 2 blinker
     it "toads oscillate with period 2" $
-      pendingWith "need to write up oscillators"
+      testOscillate 2 toad
     it "beacons oscillate with period 2" $
-      pendingWith "need to write up oscillators"
+      testOscillate 2 beacon
+    it "pentadecathlons oscillate with period 15" $
+      testOscillate 15 pentadecathlon
+
+  where
+    testStill :: Board -> Expectation
+    testStill b =
+      take sSize (game b)
+        `shouldBe` replicate sSize b
+
+    testOscillate :: Int -> Board -> Expectation
+    testOscillate p b =
+      take (sSize * p) (game b)
+        `shouldBe` (concat $ replicate sSize $ take p $ game b)
 
 -- spaceships
 
@@ -55,13 +68,18 @@ tub = board [(1,2), (2,1), (2,3), (3,2)]
 -- oscillators
 
 blinker :: Board
-blinker = undefined
+blinker = board [(1,2), (2,2), (3,2)]
 
 toad :: Board
-toad = undefined
+toad = board [(1,2), (2,2), (3,2), (2,3), (3,3), (4,3)]
 
 beacon :: Board
-beacon = undefined
+beacon = board [(1,4), (1,3), (2,4), (3,1), (4,1), (4,2)]
+
+pentadecathlon :: Board
+pentadecathlon = board [ (1,2), (2,2), (3,1), (3,3), (4,2), (5,2)
+                       , (6,2), (7,2), (8,1), (8,3), (9,2), (10,2)
+                       ]
 
 -- testing utilities
 
@@ -71,9 +89,3 @@ board = L.board bSize bSize
 game :: Board -- ^ Initial board
      -> [Board] -- ^ Resulting game
 game = iterate step
-
-testStill :: Board -> Expectation
-testStill b = take sSize (game b) `shouldBe` replicate sSize b
-
-testOscillate :: Int -> Board -> Expectation
-testOscillate n b = undefined
