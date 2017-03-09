@@ -20,7 +20,7 @@ import Math.Geometry.Grid.Square
 import qualified Math.Geometry.GridMap as GM
 import Math.Geometry.GridMap.Lazy
   ( LGridMap
-  , lazyGridMapIndexed
+  , lazyGridMap
   )
 
 -- | A modular game of life board
@@ -38,18 +38,16 @@ data Game =
        , gBoard :: Board -- ^ Current board state
        } deriving (Eq, Show)
 
--- TODO start game with all other cells == Dead, not empty/bottom
 initGame :: Int -- ^ Height
          -> Int -- ^ Length
          -> [(Int, Int)] -- ^ List of cells initially alive
          -> Game
 initGame h l cs = Game 0 board
   where
-    board =
-      lazyGridMapIndexed
-      (torSquareGrid h l)
-      (map mkAlive cs)
-    mkAlive = (,Alive)
+    board = foldr
+      (`GM.insert` Alive)
+      (lazyGridMap (torSquareGrid h l) (repeat Dead))
+      cs
 
 step :: Game -> Game
 step (Game t b) = Game (t + 1) $ GM.mapWithKey rule b
