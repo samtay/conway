@@ -4,12 +4,14 @@ module Life
   -- * Types
     Board
   , St(..)
-  , Game
+  , Game(..)
   -- * Construction
-  , initGame
+  , board
   -- * Running the game
   , step
+  , stepG
   , population
+  , gameover
   ) where
 
 import Math.Geometry.Grid
@@ -42,19 +44,20 @@ data Game =
        , gBoard :: Board -- ^ Current board state
        } deriving (Eq, Show)
 
-initGame :: Int -- ^ Height
-         -> Int -- ^ Length
-         -> [Cell] -- ^ List of cells initially alive
-         -> Game
-initGame h l cs = Game 0 board
-  where
-    board = foldr
-      (`GM.insert` Alive)
-      (lazyGridMap (torOctGrid h l) (repeat Dead))
-      cs
+board :: Int -- ^ Height
+      -> Int -- ^ Length
+      -> [Cell] -- ^ List of cells initially alive
+      -> Board
+board h l =
+  foldr
+    (`GM.insert` Alive)
+    (lazyGridMap (torOctGrid h l) (repeat Dead))
 
-step :: Game -> Game
-step (Game t b) = Game (t + 1) $ GM.mapWithKey rule b
+stepG :: Game -> Game
+stepG (Game t b) = Game (t + 1) (step b)
+
+step :: Board -> Board
+step b = GM.mapWithKey rule b
   where rule :: Cell -> St -> St
         rule c Dead
           | liveNeighbors c == 3 = Alive
@@ -72,3 +75,7 @@ population :: Board -> Int
 population = sum . map fn . GM.elems
   where fn Alive = 1
         fn Dead  = 0
+
+-- | Check if every cell is dead (i.e., gameover)
+gameover :: Board -> Bool
+gameover = (== 0) . population
