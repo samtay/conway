@@ -12,7 +12,10 @@ module Life
   , population
   ) where
 
-import Math.Geometry.Grid (neighbours)
+import Math.Geometry.Grid
+  ( Index(..)
+  , neighbours
+  )
 import Math.Geometry.Grid.Octagonal
   ( TorOctGrid(..)
   , torOctGrid
@@ -28,6 +31,7 @@ import Math.Geometry.GridMap.Lazy
 -- With this interpretation, for a board of size @n x n@
 -- the @(n + 1)@th column/row is the same as the boundary at the @1@th column/row.
 type Board = LGridMap TorOctGrid St
+type Cell = Index Board
 
 -- | Possible cell states
 data St = Alive | Dead
@@ -40,7 +44,7 @@ data Game =
 
 initGame :: Int -- ^ Height
          -> Int -- ^ Length
-         -> [(Int, Int)] -- ^ List of cells initially alive
+         -> [Cell] -- ^ List of cells initially alive
          -> Game
 initGame h l cs = Game 0 board
   where
@@ -51,7 +55,7 @@ initGame h l cs = Game 0 board
 
 step :: Game -> Game
 step (Game t b) = Game (t + 1) $ GM.mapWithKey rule b
-  where rule :: (Int, Int) -> St -> St
+  where rule :: Cell -> St -> St
         rule c Dead
           | liveNeighbors c == 3 = Alive
           | otherwise            = Dead
@@ -60,7 +64,7 @@ step (Game t b) = Game (t + 1) $ GM.mapWithKey rule b
           | liveNeighbors c == 3 = Alive
           | otherwise            = Dead
 
-        liveNeighbors :: (Int, Int) -> Int
+        liveNeighbors :: Cell -> Int
         liveNeighbors c = population $ GM.filterWithKey (const . (`elem` neighbours b c)) $ b
 
 -- | Returns the total number of living cells in a board
