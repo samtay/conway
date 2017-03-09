@@ -13,9 +13,9 @@ module Life
   ) where
 
 import Math.Geometry.Grid (neighbours)
-import Math.Geometry.Grid.Square
-  ( TorSquareGrid(..)
-  , torSquareGrid
+import Math.Geometry.Grid.Octagonal
+  ( TorOctGrid(..)
+  , torOctGrid
   )
 import qualified Math.Geometry.GridMap as GM
 import Math.Geometry.GridMap.Lazy
@@ -27,7 +27,7 @@ import Math.Geometry.GridMap.Lazy
 --
 -- With this interpretation, for a board of size @n x n@
 -- the @(n + 1)@th column/row is the same as the boundary at the @1@th column/row.
-type Board = LGridMap TorSquareGrid St
+type Board = LGridMap TorOctGrid St
 
 -- | Possible cell states
 data St = Alive | Dead
@@ -46,7 +46,7 @@ initGame h l cs = Game 0 board
   where
     board = foldr
       (`GM.insert` Alive)
-      (lazyGridMap (torSquareGrid h l) (repeat Dead))
+      (lazyGridMap (torOctGrid h l) (repeat Dead))
       cs
 
 step :: Game -> Game
