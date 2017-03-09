@@ -1,7 +1,7 @@
 module Main where
 
-import Life hiding (board)
-import qualified Life as L
+import Life
+import Life.Examples
 import Test.Hspec
 
 -- | Sample size
@@ -14,11 +14,6 @@ bSize = 20
 
 main :: IO ()
 main = hspec $ do
-
-  describe "Spaceships" $
-    it "gliders result in constant population" $
-      let ps = map population $ game glider
-       in take sSize ps `shouldBe` replicate sSize 5
 
   describe "Still lifes" $ do
     it "blocks are still" $
@@ -38,53 +33,24 @@ main = hspec $ do
     it "pentadecathlons oscillate with period 15" $
       testOscillate 15 pentadecathlon
 
-  where
-    testStill :: Board -> Expectation
-    testStill b =
-      take sSize (game b)
-        `shouldBe` replicate sSize b
+  describe "Spaceships" $
+    it "gliders result in constant population" $
+      let ps = map population $ game $ board bSize bSize glider
+       in take sSize ps `shouldBe` replicate sSize 5
 
-    testOscillate :: Int -> Board -> Expectation
-    testOscillate p b =
-      take (sSize * p) (game b)
-        `shouldBe` (concat $ replicate sSize $ take p $ game b)
+testStill :: [Cell] -> Expectation
+testStill = testStillB . board bSize bSize
 
--- spaceships
+testOscillate :: Int -> [Cell] -> Expectation
+testOscillate p = testOscillateB p . board bSize bSize
 
-glider :: Board
-glider = board [(0,0), (0,1), (0,2), (1,2), (2,1)]
+testStillB :: Board -> Expectation
+testStillB b =
+   take sSize (game b) `shouldBe` replicate sSize b
 
--- still lifes
-
-block :: Board
-block = board [(0,0), (0,1), (1,0), (1,1)]
-
-beehive :: Board
-beehive = board [(1,2), (2,1), (2,3), (3,1), (3,3), (4,2)]
-
-tub :: Board
-tub = board [(1,2), (2,1), (2,3), (3,2)]
-
--- oscillators
-
-blinker :: Board
-blinker = board [(1,2), (2,2), (3,2)]
-
-toad :: Board
-toad = board [(1,2), (2,2), (3,2), (2,3), (3,3), (4,3)]
-
-beacon :: Board
-beacon = board [(1,4), (1,3), (2,4), (3,1), (4,1), (4,2)]
-
-pentadecathlon :: Board
-pentadecathlon = board [ (1,2), (2,2), (3,1), (3,3), (4,2), (5,2)
-                       , (6,2), (7,2), (8,1), (8,3), (9,2), (10,2)
-                       ]
-
--- testing utilities
-
-board :: [Cell] -> Board
-board = L.board bSize bSize
+testOscillateB :: Int -> Board -> Expectation
+testOscillateB p b =
+  take (sSize * p) (game b) `shouldBe` (take (sSize * p) . cycle . take p $ game b)
 
 game :: Board -- ^ Initial board
      -> [Board] -- ^ Resulting game
