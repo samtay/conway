@@ -3,6 +3,7 @@ module Life
   (
   -- * Types
     Board
+  , Cell
   , St(..)
   , Game(..)
   -- * Construction

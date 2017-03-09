@@ -1,0 +1,27 @@
+sudo: false
+language: generic
+
+# Caching so the next build will be fast too.
+cache:
+  directories:
+  - $HOME/.stack
+
+# Ensure necessary system libraries are present
+addons:
+  apt:
+    packages:
+      - libgmp-dev
+
+# Download and unpack the stack executable
+before_install:
+- mkdir -p ~/.local/bin
+- export PATH=$HOME/.local/bin:$PATH
+- travis_retry curl -L https://www.stackage.org/stack/linux-x86_64 | tar xz --wildcards --strip-components=1 -C ~/.local/bin '*/stack'
+
+# Build dependencies
+install:
+- stack --no-terminal --install-ghc test --only-dependencies
+
+# Build the package and its tests and run the tests
+script:
+- stack --no-terminal test
