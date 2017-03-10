@@ -33,6 +33,10 @@ import Math.Geometry.Grid
   , neighbours
   , size
   )
+import Math.Geometry.GridInternal
+  ( WrappedGrid(..)
+  , normalise
+  )
 import Math.Geometry.Grid.Octagonal
   ( TorOctGrid(..)
   , torOctGrid
@@ -65,7 +69,7 @@ board :: Int -- ^ Height
       -> Board
 board h l =
   foldr
-    (`GM.insert` Alive)
+    (\c g -> GM.insert (normalise g c) Alive g)
     (lazyGridMap (torOctGrid h l) (repeat Dead))
 
 stepG :: Game -> Game
@@ -105,3 +109,10 @@ instance {-# OVERLAPPING #-} Show Board where
           query (x,y)       = toX_ $ GM.lookup (x,y) b
           toX_ (Just Alive) = 'X'
           toX_ _            = '_'
+
+-- | We should have an inherited WrappedGrid instance for LGridMap
+--
+-- TODO: PR submitted to author, remove this once package is updated
+instance WrappedGrid g => WrappedGrid (LGridMap g v) where
+  normalise gm   = normalise (GM.toGrid gm)
+  denormalise gm = denormalise (GM.toGrid gm)
