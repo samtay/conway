@@ -35,14 +35,14 @@ main = hspec $ do
 
   describe "Spaceships" $
     it "gliders result in constant population" $
-      let ps = map population $ game $ board bSize bSize glider
+      let ps = map population $ game $ glider bSize bSize
        in take sSize ps `shouldBe` replicate sSize 5
 
-testStill :: [Cell] -> Expectation
-testStill = testStillB . board bSize bSize
+testStill :: (Int -> Int -> Board) -> Expectation
+testStill b = testStillB $ b bSize bSize
 
-testOscillate :: Int -> [Cell] -> Expectation
-testOscillate p = testOscillateB p . board bSize bSize
+testOscillate :: Int -> (Int -> Int -> Board) -> Expectation
+testOscillate p b = testOscillateB p $ b bSize bSize
 
 testStillB :: Board -> Expectation
 testStillB b =
