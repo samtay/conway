@@ -16,12 +16,10 @@ module Life
     Board
   , Cell
   , St(..)
-  , Game(..)
   -- * Construction
   , board
   -- * Running the game
   , step
-  , stepG
   , population
   , gameover
   ) where
@@ -58,11 +56,6 @@ type Cell = Index Board
 data St = Alive | Dead
   deriving (Eq, Show)
 
-data Game =
-  Game { gTime  :: Int -- ^ Time step
-       , gBoard :: Board -- ^ Current board state
-       } deriving (Eq, Show)
-
 board :: Int -- ^ Height
       -> Int -- ^ Length
       -> [Cell] -- ^ List of cells initially alive
@@ -71,9 +64,6 @@ board h l =
   foldr
     (\c g -> GM.insert (normalise g c) Alive g)
     (lazyGridMap (torOctGrid h l) (repeat Dead))
-
-stepG :: Game -> Game
-stepG (Game t b) = Game (t + 1) (step b)
 
 step :: Board -> Board
 step b = GM.mapWithKey rule b
