@@ -105,8 +105,15 @@ gameover = (== 0) . population
 instance {-# OVERLAPPING #-} Show Board where
   show b = unlines . reverse $ map mkRow [0..rowT - 1]
     where (rowT, colT)      = size b
-          mkRow y           = intersperse '|' $ map (query . (,y)) [0..colT - 1]
-          query (x,y)       = toX_ $ GM.lookup (x,y) b
+
+          mkRow :: Int -> String
+          mkRow y = intersperse '|' $
+            map (toX_ . query . (,y)) [0..colT - 1]
+
+          query :: Cell -> Maybe St
+          query = (`GM.lookup` b)
+
+          toX_ :: Maybe St -> Char
           toX_ (Just Alive) = 'X'
           toX_ _            = '_'
 
