@@ -1,4 +1,15 @@
+-----------------------------------------------------------------------------
+-- |
+-- Module      :  Life
+-- Copyright   :  (c) Sam Tay 2017
+-- License     :  BSD3
+-- Maintainer  :  sam.chong.tay@gmail.com
+-- Stability   :  experimental
+-- Portability :  portable
+--
+-----------------------------------------------------------------------------
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE FlexibleInstances #-}
 module Life
   (
   -- * Types
@@ -15,9 +26,12 @@ module Life
   , gameover
   ) where
 
+import Data.List (intersperse)
+
 import Math.Geometry.Grid
   ( Index(..)
   , neighbours
+  , size
   )
 import Math.Geometry.Grid.Octagonal
   ( TorOctGrid(..)
@@ -80,3 +94,14 @@ population = sum . map fn . GM.elems
 -- | Check if every cell is dead (i.e., gameover)
 gameover :: Board -> Bool
 gameover = (== 0) . population
+
+-- | Overlap show instance so we can see a nice grid of values
+--
+-- Nice when sanity checking or playing in the REPL
+instance {-# OVERLAPPING #-} Show Board where
+  show b = unlines . reverse $ map mkRow [0..rowT - 1]
+    where (rowT, colT)      = size b
+          mkRow y           = intersperse ' ' $ map (query . (,y)) [0..colT - 1]
+          query (x,y)       = toX_ $ GM.lookup (x,y) b
+          toX_ (Just Alive) = 'X'
+          toX_ _            = '_'
