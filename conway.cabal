@@ -28,6 +28,7 @@ executable life
   build-depends:       base
                      , brick >= 0.17 && < 1
                      , conway
+                     , vty >= 5.15
   default-language:    Haskell2010
 
 test-suite test
