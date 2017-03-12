@@ -1,13 +1,18 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TemplateHaskell #-}
 module Main where
 
 import Control.Concurrent (threadDelay, forkIO)
 import Control.Monad (void, forever)
 import Data.Monoid ((<>))
-import qualified Graphics.Vty as V
+import Lens.Micro ((^.), (&), (%~))
+import Lens.Micro.TH
 
-import Life
+import Life hiding (board)
+import qualified Life as L
 import qualified Life.Examples as LE
+import Math.Geometry.Grid (size)
+import Math.Geometry.GridMap (toList)
 
 import Brick
 import Brick.BChan
@@ -15,11 +20,13 @@ import Brick.Widgets.Core
   ( (<+>), (<=>)
   , hBox
   , withBorderStyle
+  , emptyWidget
   )
 import qualified Brick.Widgets.Center as C
 import qualified Brick.Widgets.Border as B
 import qualified Brick.Widgets.ProgressBar as P
 import Brick.Widgets.Border.Style (unicodeBold)
+import qualified Graphics.Vty as V
 
 -- Game State
 
@@ -31,9 +38,11 @@ data Game = Game { _board   :: Board -- ^ Board state
                  , _counter :: Int   -- ^ Counter of 'Tick' events (used to control speed)
                  } -- deriving (Eq, Show)
 
+makeLenses ''Game
+
 -- | Initial game with empty board
 initialGame :: Game
-initialGame = Game { _board   = board minG minG []
+initialGame = Game { _board   = L.board minG minG []
                    , _time    = 0
                    , _paused  = True
                    , _speed   = 0.5
@@ -44,21 +53,21 @@ initialGame = Game { _board   = board minG minG []
 speedInc :: Float
 speedInc = 0.01
 
--- | Minimum interval speed (microseconds)
+-- | Minimum interval (microseconds)
 --
 -- Corresponding speed == 4 frames / second
-minInterval :: Int
-minInterval = 100000
+minI :: Int
+minI = 100000
 
--- | Maximum interval speed (microseconds)
+-- | Maximum interval (microseconds)
 --
 -- Corresponding speed == 0.5 frames / second
-maxInterval :: Int
-maxInterval = 2000000
+maxI :: Int
+maxI = 2000000
 
--- | Mid interval speed (microseconds)
-midInterval :: Int
-midInterval = (maxInterval - minInterval) `div` 2 + minInterval
+-- | Mid interval (microseconds)
+midI :: Int
+midI = (maxI - minI) `div` 2 + minI
 
 -- Interface
 
@@ -83,29 +92,50 @@ app = App { appDraw = drawUI
 drawUI :: Game -> [Widget ()]
 drawUI g = [drawGrid g <=> drawSpeedBar g]
 
+-- | Draw grid
+--
+-- BIG asterisk *** I wanted this to be reasonably performant,
+-- so I'm leveraging the fact that 'toList' returns ordered tiles.
+--
+-- Also, TODO check on itemfields package, it might make this easier
 drawGrid :: Game -> Widget ()
-drawGrid _ =
+drawGrid g =
   withBorderStyle unicodeBold $
   B.borderWithLabel (txt "Game of Life") $
   C.center $
-  txt "testing testing testing!" -- TODO make grid
+  fst $ toCols (emptyWidget, toList $ g^.board)
+    where toCols :: (Widget (), [(Cell, St)]) -> (Widget (), [(Cell, St)])
+          toCols (w,[]) = (w,[])
+          toCols (w,xs) = let (c,cs) = splitAt rowT xs
+                           in toCols (w <+> mkCol c, cs)
+          mkCol :: [(Cell, St)] -> Widget ()
+          mkCol = foldr (flip (<=>) . renderSt . snd) emptyWidget
+          rowT :: Int
+          rowT  = fst . size $ g^.board
 
 drawSpeedBar :: Game -> Widget ()
-drawSpeedBar g = P.progressBar (Just $ "Speed: " <> show (fromEnum $ _speed g * 100)) (_speed g)
+drawSpeedBar g = P.progressBar (Just $ "Speed: " <> show (fromEnum $ g^.speed * 100)) (g^.speed)
 
--- TODO look in visibility demo for rendering grid
 renderSt :: St -> Widget ()
-renderSt s = undefined -- TODO make a 1x1 box colored or empty
+renderSt Alive = withAttr aliveAttr cw
+renderSt Dead = withAttr deadAttr cw
+
+aliveAttr, deadAttr :: AttrName
+aliveAttr = "alive"
+deadAttr = "dead"
+
 
 gameAttrMap :: AttrMap
 gameAttrMap = attrMap V.defAttr
-              [ (P.progressIncompleteAttr, V.blue `on` V.yellow)
+              [ (aliveAttr,                bg V.white)
+              , (deadAttr,                 bg V.black)
+              , (P.progressIncompleteAttr, V.blue `on` V.yellow)
               , (P.progressCompleteAttr,   V.blue `on` V.green)
               ]
 
--- | Cell width
-cw :: Int
-cw = 2
+-- | Cell widget
+cw :: Widget ()
+cw = txt "  "
 
 -- | Min grid side
 minG :: Int
@@ -116,21 +146,22 @@ minG = 20
 -- TODO look in mouse demo for handling mouse events in different layers!
 handleEvent :: Game -> BrickEvent () Tick -> EventM () (Next Game)
 handleEvent g (AppEvent Tick) = undefined
-handleEvent g (VtyEvent (V.EvKey V.KRight [V.MCtrl])) = continue $ g { _speed = validS $ (_speed g) + speedInc }
-handleEvent g (VtyEvent (V.EvKey V.KLeft [V.MCtrl])) = continue $ g { _speed = validS $ (_speed g) - speedInc }
--- wow need TH NOW!
+handleEvent g (VtyEvent (V.EvKey V.KRight [V.MCtrl])) = handleSpeed g (+)
+handleEvent g (VtyEvent (V.EvKey V.KLeft [V.MCtrl])) = handleSpeed g (-)
 handleEvent g _ = halt g
+
+handleSpeed :: Game -> (Float -> Float -> Float) -> EventM () (Next Game)
+handleSpeed g (+/-) = continue $ g & speed %~ (+/- speedInc)
+                                   & speed %~ validS
 
 validS :: Float -> Float
 validS = clamp 0 1
 
 -- | Get interval from progress bar float (between 1 and
-speedToInterval :: RealFrac a => a -> Int
-speedToInterval x
-  | 0 <= x && x >= 1 =
-    floor $ (fromIntegral $ maxInterval - minInterval) * (1 - x) + fromIntegral minInterval
-  | x < 0            = maxInterval
-  | x > 0            = minInterval
+spToInt :: Float -> Int
+spToInt = floor . toInterval . validS
+  where toInterval x = (fromIntegral $ maxI - minI) * (1 - x)
+                        + fromIntegral minI
 
 -- Runtime
 
@@ -139,7 +170,7 @@ main = do
   chan <- newBChan 10
   forkIO $ forever $ do
     writeBChan chan Tick
-    threadDelay midInterval
+    threadDelay midI
   defaultMain app initialGame >>= printResult
 
 printResult :: Game -> IO ()
@@ -148,9 +179,8 @@ printResult g = mapM_ putStrLn
   , "  population: " <> p
   , "        time: " <> t
   ]
-    where p = show $ population . _board $ g
-          t = show $ _time g
-          -- TODO TemplateHaskell
+    where p = show $ population $ g^.board
+          t = show $ g^.time
 
 
 -- Ctrl+Return to pause/play simulation

@@ -92,6 +92,8 @@ gameover = (== 0) . population
 -- | Overlap show instance so we can see a nice grid of values
 --
 -- Nice when sanity checking or playing in the REPL
+-- TODO this is obviously bad issuing a lookup for each cell
+-- Use toList and then order it into list of type :: [St]
 instance {-# OVERLAPPING #-} Show Board where
   show b = unlines . reverse $ map mkRow [0..rowT - 1]
     where (rowT, colT)      = size b
