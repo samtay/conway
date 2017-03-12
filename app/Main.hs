@@ -3,9 +3,11 @@
 module Main where
 
 import Control.Concurrent (threadDelay, forkIO)
+import Control.Concurrent.STM
 import Control.Monad (void, forever)
+import Control.Monad.IO.Class (liftIO)
 import Data.Monoid ((<>))
-import Lens.Micro ((^.), (&), (%~))
+import Lens.Micro ((^.), (&), (%~), (.~))
 import Lens.Micro.TH
 
 import Life hiding (board)
@@ -31,23 +33,23 @@ import qualified Graphics.Vty as V
 -- Game State
 
 -- | Game state
-data Game = Game { _board   :: Board -- ^ Board state
-                 , _time    :: Int   -- ^ Time elapsed
-                 , _paused  :: Bool  -- ^ Playing vs. paused
-                 , _speed   :: Float -- ^ Speed in [0..1]
-                 , _counter :: Int   -- ^ Counter of 'Tick' events (used to control speed)
+data Game = Game { _board    :: Board -- ^ Board state
+                 , _time     :: Int   -- ^ Time elapsed
+                 , _paused   :: Bool  -- ^ Playing vs. paused
+                 , _speed    :: Float -- ^ Speed in [0..1]
+                 , _interval :: TVar Int
                  } -- deriving (Eq, Show)
 
 makeLenses ''Game
 
 -- | Initial game with empty board
-initialGame :: Game
-initialGame = Game { _board   = L.board minG minG []
-                   , _time    = 0
-                   , _paused  = True
-                   , _speed   = 0.5
-                   , _counter = 0
-                   }
+initialGame :: TVar Int -> Game
+initialGame tv = Game { _board    = LE.pentadecathlon 40 40 --L.board minG minG []
+                      , _time     = 0
+                      , _paused   = True
+                      , _speed    = 0.5
+                      , _interval = tv
+                      }
 
 -- | Speed increments = 0.01 gives 100 discrete speed settings
 speedInc :: Float
@@ -145,14 +147,16 @@ minG = 20
 
 -- TODO look in mouse demo for handling mouse events in different layers!
 handleEvent :: Game -> BrickEvent () Tick -> EventM () (Next Game)
-handleEvent g (AppEvent Tick) = undefined
+handleEvent g (AppEvent Tick) = continue $ g & board %~ step
 handleEvent g (VtyEvent (V.EvKey V.KRight [V.MCtrl])) = handleSpeed g (+)
 handleEvent g (VtyEvent (V.EvKey V.KLeft [V.MCtrl])) = handleSpeed g (-)
 handleEvent g _ = halt g
 
 handleSpeed :: Game -> (Float -> Float -> Float) -> EventM () (Next Game)
-handleSpeed g (+/-) = continue $ g & speed %~ (+/- speedInc)
-                                   & speed %~ validS
+handleSpeed g (+/-) = do
+  let newSp = validS $ (g^.speed) +/- speedInc
+  liftIO $ atomically $ writeTVar (g^.interval) (spToInt newSp)
+  continue $ g & speed .~ newSp
 
 validS :: Float -> Float
 validS = clamp 0 1
@@ -168,10 +172,12 @@ spToInt = floor . toInterval . validS
 main :: IO ()
 main = do
   chan <- newBChan 10
+  tv   <- atomically $ newTVar midI
   forkIO $ forever $ do
     writeBChan chan Tick
-    threadDelay midI
-  defaultMain app initialGame >>= printResult
+    int <- atomically $ readTVar tv
+    threadDelay int
+  customMain (V.mkVty V.defaultConfig) (Just chan) app (initialGame tv) >>= printResult
 
 printResult :: Game -> IO ()
 printResult g = mapM_ putStrLn
