@@ -7,7 +7,8 @@ import Control.Concurrent.STM
 import Control.Monad (void, forever)
 import Control.Monad.IO.Class (liftIO)
 import Data.Monoid ((<>))
-import Lens.Micro ((^.), (&), (%~), (.~))
+import Data.Maybe (fromMaybe)
+import Lens.Micro ((^.), (^?), (&), (%~), (.~), (<&>), set, to, ix)
 import Lens.Micro.TH
 
 import Life hiding (board)
@@ -15,6 +16,7 @@ import qualified Life as L
 import qualified Life.Examples as LE
 import Math.Geometry.Grid (size)
 import Math.Geometry.GridMap (toList)
+import qualified Math.Geometry.GridMap as GM
 
 import Brick
 import Brick.BChan
@@ -23,11 +25,13 @@ import Brick.Widgets.Core
   , hBox
   , withBorderStyle
   , emptyWidget
+  , padLeftRight
+  , padTopBottom
   )
 import qualified Brick.Widgets.Center as C
 import qualified Brick.Widgets.Border as B
 import qualified Brick.Widgets.ProgressBar as P
-import Brick.Widgets.Border.Style (unicodeBold)
+import qualified Brick.Widgets.Border.Style as BS
 import qualified Graphics.Vty as V
 
 -- Game State
@@ -37,19 +41,22 @@ data Game = Game { _board    :: Board -- ^ Board state
                  , _time     :: Int   -- ^ Time elapsed
                  , _paused   :: Bool  -- ^ Playing vs. paused
                  , _speed    :: Float -- ^ Speed in [0..1]
-                 , _interval :: TVar Int
-                 } -- deriving (Eq, Show)
+                 , _interval :: TVar Int -- ^ Interval kept in TVar
+                 }
 
 makeLenses ''Game
 
 -- | Initial game with empty board
 initialGame :: TVar Int -> Game
-initialGame tv = Game { _board    = LE.pentadecathlon 40 40 --L.board minG minG []
+initialGame tv = Game { _board    = L.board minG minG []
                       , _time     = 0
                       , _paused   = True
-                      , _speed    = 0.5
+                      , _speed    = initialSpeed
                       , _interval = tv
                       }
+
+initialSpeed :: Float
+initialSpeed = 0.75
 
 -- | Speed increments = 0.01 gives 100 discrete speed settings
 speedInc :: Float
@@ -77,9 +84,11 @@ midI = (maxI - minI) `div` 2 + minI
 -- It in and of itself does not "count" anything and thus is not a counter
 data Tick = Tick
 
--- TODO - possibly add Name'd resources
+-- | Name resources (needed for scrollable viewport)
+data Name = ExampleVP
+  deriving (Ord, Show, Eq)
 
-app :: App Game Tick ()
+app :: App Game Tick Name
 app = App { appDraw = drawUI
           , appChooseCursor = neverShowCursor -- TODO keep track of "focus" in state
                                               -- and implement cursor chooser based on that
@@ -91,34 +100,79 @@ app = App { appDraw = drawUI
 
 ---- Drawing
 
-drawUI :: Game -> [Widget ()]
-drawUI g = [drawGrid g <=> drawSpeedBar g]
+drawUI :: Game -> [Widget Name]
+drawUI g = [ vBox [ drawGrid (g^.board)
+                  , hBox $ padTopBottom 1 . vLimit 6
+                    <$> [ drawSpeedBar (g^.speed)
+                        , drawPButton (g^.paused)
+                        , drawExamples
+                        ]
+                   ]
+           ]
 
 -- | Draw grid
 --
 -- BIG asterisk *** I wanted this to be reasonably performant,
 -- so I'm leveraging the fact that 'toList' returns ordered tiles.
 --
--- Also, TODO check on itemfields package, it might make this easier
-drawGrid :: Game -> Widget ()
-drawGrid g =
-  withBorderStyle unicodeBold $
-  B.borderWithLabel (txt "Game of Life") $
+drawGrid :: Board -> Widget n
+drawGrid b =
+  withBorderStyle BS.unicodeBold $
+  B.borderWithLabel (str "Game of Life") $
   C.center $
-  fst $ toCols (emptyWidget, toList $ g^.board)
-    where toCols :: (Widget (), [(Cell, St)]) -> (Widget (), [(Cell, St)])
+  fst $ toCols (emptyWidget, toList $ b)
+    where toCols :: (Widget n, [(Cell, St)]) -> (Widget n, [(Cell, St)])
           toCols (w,[]) = (w,[])
           toCols (w,xs) = let (c,cs) = splitAt rowT xs
                            in toCols (w <+> mkCol c, cs)
-          mkCol :: [(Cell, St)] -> Widget ()
+          mkCol :: [(Cell, St)] -> Widget n
           mkCol = foldr (flip (<=>) . renderSt . snd) emptyWidget
           rowT :: Int
-          rowT  = fst . size $ g^.board
+          rowT  = fst . size $ b
 
-drawSpeedBar :: Game -> Widget ()
-drawSpeedBar g = P.progressBar (Just $ "Speed: " <> show (fromEnum $ g^.speed * 100)) (g^.speed)
+drawSpeedBar :: Float -> Widget n
+drawSpeedBar s =
+  padTopBottom 2 $
+  P.progressBar (Just lbl) s
+    where lbl = "Speed: "
+              <> show (fromEnum $ s * 100)
+              <> "  "
+              <> "(Ctrl <-,->)"
 
-renderSt :: St -> Widget ()
+drawPButton :: Bool -> Widget n
+drawPButton pause = padTopBottom 1 $ mkButton $
+  if pause
+     then withAttr pausedAttr $ str "Play (Space)"
+     else withAttr playingAttr $ str "Pause (Space)"
+
+drawExamples :: Widget Name
+drawExamples =
+  mkBox BS.unicodeRounded "Examples (Press number)" $
+  vLimit 4 $ hLimit 24 $
+  viewport ExampleVP Vertical $
+  padRight Max $
+  str $ unlines $ zipWith lbl [0..] examples
+    where lbl n (s, _) = show n ++ ". " ++ s
+
+examples :: [(String, (Int -> Int -> Board))]
+examples =
+  [ ("Glider", LE.glider)
+  , ("Pentadecathlon", LE.pentadecathlon)
+  , ("Beacon", LE.beacon)
+  , ("Toad", LE.toad)
+  , ("Blinker", LE.blinker)
+  , ("Tub", LE.tub)
+  , ("Beehive", LE.beehive)
+  , ("Block", LE.block)
+  ]
+
+mkButton :: Widget n -> Widget n
+mkButton = B.border . withBorderStyle BS.unicodeRounded . padLeftRight 1
+
+mkBox :: BS.BorderStyle -> String -> Widget n -> Widget n
+mkBox bs s = withBorderStyle bs . B.borderWithLabel (str s)
+
+renderSt :: St -> Widget n
 renderSt Alive = withAttr aliveAttr cw
 renderSt Dead = withAttr deadAttr cw
 
@@ -126,37 +180,66 @@ aliveAttr, deadAttr :: AttrName
 aliveAttr = "alive"
 deadAttr = "dead"
 
+pausedAttr, playingAttr :: AttrName
+pausedAttr = "paused"
+playingAttr = "playing"
 
 gameAttrMap :: AttrMap
 gameAttrMap = attrMap V.defAttr
               [ (aliveAttr,                bg V.white)
               , (deadAttr,                 bg V.black)
+              , (pausedAttr,               V.blue `on` V.green)
+              , (playingAttr,              V.blue `on` V.red)
               , (P.progressIncompleteAttr, V.blue `on` V.yellow)
               , (P.progressCompleteAttr,   V.blue `on` V.green)
               ]
 
 -- | Cell widget
-cw :: Widget ()
-cw = txt "  "
+cw :: Widget n
+cw = str "  "
 
 -- | Min grid side
 minG :: Int
-minG = 20
+minG = 30
 
 ---- Events
 
 -- TODO look in mouse demo for handling mouse events in different layers!
-handleEvent :: Game -> BrickEvent () Tick -> EventM () (Next Game)
-handleEvent g (AppEvent Tick) = continue $ g & board %~ step
+handleEvent :: Game -> BrickEvent Name Tick -> EventM Name (Next Game)
+handleEvent g (AppEvent Tick) = continue $
+  if (g^.paused || g^.speed == 0)
+     then g
+     else forward g
 handleEvent g (VtyEvent (V.EvKey V.KRight [V.MCtrl])) = handleSpeed g (+)
-handleEvent g (VtyEvent (V.EvKey V.KLeft [V.MCtrl])) = handleSpeed g (-)
-handleEvent g _ = halt g
+handleEvent g (VtyEvent (V.EvKey V.KLeft [V.MCtrl]))  = handleSpeed g (-)
+handleEvent g (VtyEvent (V.EvKey V.KUp [V.MCtrl]))    = scrollEx (-1) >> continue g
+handleEvent g (VtyEvent (V.EvKey V.KDown [V.MCtrl]))  = scrollEx 1 >> continue g
+handleEvent g (VtyEvent (V.EvKey (V.KChar 'n') []))   = continue $ forward g
+handleEvent g (VtyEvent (V.EvKey (V.KChar ' ') []))   = continue $ g & paused %~ not
+handleEvent g (VtyEvent (V.EvKey (V.KChar 'c') []))   = continue $ g & board %~ GM.map (const Dead)
+handleEvent g (VtyEvent (V.EvKey (V.KChar n) []))
+  | n `elem` ['0'..'9']                               = handleExample g n
+  | otherwise                                         = continue g
+handleEvent g _                                       = halt g
 
-handleSpeed :: Game -> (Float -> Float -> Float) -> EventM () (Next Game)
+forward :: Game -> Game
+forward = (& board %~ step) . (& time %~ succ)
+
+handleSpeed :: Game -> (Float -> Float -> Float) -> EventM n (Next Game)
 handleSpeed g (+/-) = do
   let newSp = validS $ (g^.speed) +/- speedInc
   liftIO $ atomically $ writeTVar (g^.interval) (spToInt newSp)
   continue $ g & speed .~ newSp
+
+handleExample :: Game -> Char -> EventM n (Next Game)
+handleExample g n = continue $ fromMaybe g mg
+  where mg    = set paused True <$> (set board <$> (me <*> Just h <*> Just l) <*> Just g)
+        me    = examples ^? ix (read [n]) <&> snd
+        (h,l) = g ^. board . to size
+
+
+scrollEx :: Int -> EventM Name ()
+scrollEx n = (viewportScroll ExampleVP) `vScrollBy` n
 
 validS :: Float -> Float
 validS = clamp 0 1
@@ -172,7 +255,7 @@ spToInt = floor . toInterval . validS
 main :: IO ()
 main = do
   chan <- newBChan 10
-  tv   <- atomically $ newTVar midI
+  tv   <- atomically $ newTVar (spToInt initialSpeed)
   forkIO $ forever $ do
     writeBChan chan Tick
     int <- atomically $ readTVar tv
@@ -189,21 +272,14 @@ printResult g = mapM_ putStrLn
           t = show $ g^.time
 
 
--- Ctrl+Return to pause/play simulation
--- Return to move forward 1 step in simulation
+-- Layer with "how to" info (see layer demo on not interfering with grid)
 -- Little floating box with current time & population
 -- Grid with squares that can be traversed via arrow keys
 -- Spacebar to toggle Alive / Dead
 -- Mouse click on
   -- cell -> toggle Alive/Dead
-  -- button that says "Play/Pause (Enter)" -> play/pause simulation
   -- take a look at MouseDemo.hs -- probably need layer for each box?
 -- Clear button (c)
--- Viewbox with numbered list of examples
-  -- scrollable with Ctrl + up/down
-  -- Ctrl+N will load up the Nth example (and pause it)
--- ProgressBar for speed setting from 0 - 100
-  -- Ctrl + left/right to change speed setting
 -- Change grid size on terminal resize (& start grid size based on this)
   -- Ah. We need custom widgets for contextual info: https://github.com/jtdaugherty/brick/blob/master/docs/guide.rst#implementing-custom-widgets
 -- Small text at the bottom with current grid size, e.g. 200 x 220
@@ -218,6 +294,6 @@ printResult g = mapM_ putStrLn
      -- cool for people exploring rules of cellular automata
 
 -- Questions/Thoughts
-  -- Do I need or want itemfield package?
-  -- Perhaps avoid Ctrl + arrows due to https://github.com/jtdaugherty/brick/blob/master/FAQ.md
   -- Profile via criterion before asking r/haskell for performance advice
+  -- Why doesn't below work? Keyboard/terminal specifics?
+    --handleEvent g (VtyEvent (V.EvKey (V.KChar ' ') [V.MShift])) = continue $ forward g
