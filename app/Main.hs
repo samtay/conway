@@ -103,8 +103,8 @@ app = App { appDraw = drawUI
 drawUI :: Game -> [Widget Name]
 drawUI g = [ vBox [ drawGrid (g^.board)
                   , hBox $ padTopBottom 1 . vLimit 6
-                    <$> [ drawSpeedBar (g^.speed)
-                        , drawPButton (g^.paused)
+                    <$> [ drawSpeedBar (g^.speed) <=> drawInstruct
+                        , drawPButton (g^.paused) <=> drawCButton
                         , drawExamples
                         ]
                    ]
@@ -132,21 +132,32 @@ drawGrid b =
 
 drawSpeedBar :: Float -> Widget n
 drawSpeedBar s =
-  padTopBottom 2 $
+  padBottom (Pad 1) $
   P.progressBar (Just lbl) s
     where lbl = "Speed: "
               <> show (fromEnum $ s * 100)
               <> "  "
               <> "(Ctrl <-,->)"
 
+drawInstruct :: Widget n
+drawInstruct = padBottom Max $ str $
+  "Press 'space' to toggle play/pause,    'n' to take 1 step,\n\
+  \Ctrl-left, Ctrl-right to vary speed,   'c' to clear the board,\n\
+  \Ctrl-up, Ctrl-down to scroll examples, '1,2,..' to draw an example,\n\
+  \and ESC to quit."
+
 drawPButton :: Bool -> Widget n
-drawPButton pause = padTopBottom 1 $ mkButton $
+drawPButton pause = mkButton $
   if pause
      then withAttr pausedAttr $ str "Play (Space)"
      else withAttr playingAttr $ str "Pause (Space)"
 
+drawCButton :: Widget n
+drawCButton = mkButton $ str "Clear (c)"
+
 drawExamples :: Widget Name
 drawExamples =
+  withAttr examplesAttr $
   mkBox BS.unicodeRounded "Examples (Press number)" $
   vLimit 4 $ hLimit 24 $
   viewport ExampleVP Vertical $
@@ -184,12 +195,16 @@ pausedAttr, playingAttr :: AttrName
 pausedAttr = "paused"
 playingAttr = "playing"
 
+examplesAttr :: AttrName
+examplesAttr = "examples"
+
 gameAttrMap :: AttrMap
 gameAttrMap = attrMap V.defAttr
               [ (aliveAttr,                bg V.white)
               , (deadAttr,                 bg V.black)
-              , (pausedAttr,               V.blue `on` V.green)
-              , (playingAttr,              V.blue `on` V.red)
+              , (pausedAttr,               fg V.green)
+              , (playingAttr,              fg V.red)
+              , (examplesAttr,             fg V.blue)
               , (P.progressIncompleteAttr, V.blue `on` V.yellow)
               , (P.progressCompleteAttr,   V.blue `on` V.green)
               ]
@@ -217,10 +232,12 @@ handleEvent g (VtyEvent (V.EvKey V.KDown [V.MCtrl]))  = scrollEx 1 >> continue g
 handleEvent g (VtyEvent (V.EvKey (V.KChar 'n') []))   = continue $ forward g
 handleEvent g (VtyEvent (V.EvKey (V.KChar ' ') []))   = continue $ g & paused %~ not
 handleEvent g (VtyEvent (V.EvKey (V.KChar 'c') []))   = continue $ g & board %~ GM.map (const Dead)
+handleEvent g (VtyEvent (V.EvKey (V.KChar 'q') []))   = halt g
 handleEvent g (VtyEvent (V.EvKey (V.KChar n) []))
   | n `elem` ['0'..'9']                               = handleExample g n
   | otherwise                                         = continue g
-handleEvent g _                                       = halt g
+handleEvent g (VtyEvent (V.EvKey V.KEsc []))          = halt g
+handleEvent g _                                       = continue g
 
 forward :: Game -> Game
 forward = (& board %~ step) . (& time %~ succ)
@@ -233,7 +250,8 @@ handleSpeed g (+/-) = do
 
 handleExample :: Game -> Char -> EventM n (Next Game)
 handleExample g n = continue $ fromMaybe g mg
-  where mg    = set paused True <$> (set board <$> (me <*> Just h <*> Just l) <*> Just g)
+  where mg = set time 0 .  set paused True
+              <$> (set board <$> (me <*> Just h <*> Just l) <*> Just g)
         me    = examples ^? ix (read [n]) <&> snd
         (h,l) = g ^. board . to size
 
@@ -279,7 +297,6 @@ printResult g = mapM_ putStrLn
 -- Mouse click on
   -- cell -> toggle Alive/Dead
   -- take a look at MouseDemo.hs -- probably need layer for each box?
--- Clear button (c)
 -- Change grid size on terminal resize (& start grid size based on this)
   -- Ah. We need custom widgets for contextual info: https://github.com/jtdaugherty/brick/blob/master/docs/guide.rst#implementing-custom-widgets
 -- Small text at the bottom with current grid size, e.g. 200 x 220
