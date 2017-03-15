@@ -18,6 +18,8 @@ module Life
   , St(..)
   -- * Construction
   , board
+  , expand
+  , contract
   -- * Running the game
   , step
   , population
@@ -43,6 +45,7 @@ import qualified Math.Geometry.GridMap as GM
 import Math.Geometry.GridMap.Lazy
   ( LGridMap
   , lazyGridMap
+  , lazyGridMapIndexed
   )
 
 -- | A modular game of life board
@@ -56,6 +59,7 @@ type Cell = Index Board
 data St = Alive | Dead
   deriving (Eq, Show)
 
+-- | Create a board with given height, length, and initial state
 board :: Int -- ^ Height
       -> Int -- ^ Length
       -> [Cell] -- ^ List of cells initially alive
@@ -64,6 +68,37 @@ board h l =
   foldr
     (\c g -> GM.insert (normalise g c) Alive g)
     (lazyGridMap (torOctGrid h l) (repeat Dead))
+
+-- | Expand a board by specified number of rows/columns in north/east/south/west directions
+expand :: Int -- ^ Top
+       -> Int -- ^ Right
+       -> Int -- ^ Bottom
+       -> Int -- ^ Left
+       -> Board -- ^ Board to expand
+       -> Board
+expand n e s w b = lazyGridMapIndexed (torOctGrid nh nl) vs
+  where (h,l)                = size b
+        (nh, nl)             = (h + n + s, l + e + w)
+        vs                   = map translate . add (n + s) (e + w) $ GM.toList b
+        add yn xn            = (++) [((x+l,y+h), Dead) | x <- [0..xn - 1], y <- [0..yn - 1]]
+        translate ((x,y), v) = let nx = (x + w) `mod` nl
+                                   ny = (y + s) `mod` nh
+                                in ((nx, ny), v)
+
+contract :: Int -- ^ Top
+         -> Int -- ^ Right
+         -> Int -- ^ Bottom
+         -> Int -- ^ Left
+         -> Board -- ^ Board to contract
+         -> Board
+contract n e s w b = lazyGridMapIndexed (torOctGrid nh nl) vs
+  where (h,l) = size b
+        (nh, nl) = (h - n - s, l - e - w)
+        vs = map translate . filter fits $ GM.toList b
+        fits ((x,y), _) = and [x >= w, x < l - e, y >= s, y < h - n]
+        translate ((x,y), v) = let nx = (x - w) `mod` nl
+                                   ny = (y - s) `mod` nh
+                                in ((nx, ny), v)
 
 step :: Board -> Board
 step b = GM.mapWithKey rule b
