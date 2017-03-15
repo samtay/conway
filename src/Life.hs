@@ -108,10 +108,3 @@ instance {-# OVERLAPPING #-} Show Board where
           toX_ :: Maybe St -> Char
           toX_ (Just Alive) = 'X'
           toX_ _            = '_'
-
--- | We should have an inherited WrappedGrid instance for LGridMap
---
--- TODO: PR submitted to author, remove this once package is updated
-instance WrappedGrid g => WrappedGrid (LGridMap g v) where
-  normalise gm   = normalise (GM.toGrid gm)
-  denormalise gm = denormalise (GM.toGrid gm)
