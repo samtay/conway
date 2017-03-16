@@ -1,4 +1,4 @@
-# conway [![Build Status](https://travis-ci.org/SamTay/conway.svg?branch=master)](https://travis-ci.org/SamTay/conway)
+# conway [![Build Status](https://travis-ci.org/samtay/conway.svg?branch=master)](https://travis-ci.org/samtay/conway)
 A terminal interface for playing Conway's Game of Life
 
 
