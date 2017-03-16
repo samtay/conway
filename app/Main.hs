@@ -8,13 +8,14 @@ import Control.Monad (void, forever)
 import Control.Monad.IO.Class (liftIO)
 import Data.Monoid ((<>))
 import Data.Maybe (fromMaybe)
-import Lens.Micro ((^.), (^?), (&), (%~), (.~), (<&>), set, to, ix)
+import Lens.Micro ((^.), (^?), (&), (%~), (.~), (<&>), _1, _2, set, to, ix, over)
 import Lens.Micro.TH
 
 import Life hiding (board)
 import qualified Life as L
 import qualified Life.Examples as LE
-import Math.Geometry.Grid (size)
+import Math.Geometry.Grid (size, contains)
+import Math.Geometry.GridInternal (normalise)
 import Math.Geometry.GridMap (toList)
 import qualified Math.Geometry.GridMap as GM
 
@@ -32,9 +33,12 @@ import qualified Brick.Widgets.Center as C
 import qualified Brick.Widgets.Border as B
 import qualified Brick.Widgets.ProgressBar as P
 import qualified Brick.Widgets.Border.Style as BS
+import qualified Brick.Focus as F
 import qualified Graphics.Vty as V
 
--- Game State
+-- | Name resources (needed for scrollable viewport)
+data Name = GridVP | ExampleVP
+  deriving (Ord, Show, Eq)
 
 -- | Game state
 data Game = Game { _board    :: Board -- ^ Board state
@@ -42,6 +46,8 @@ data Game = Game { _board    :: Board -- ^ Board state
                  , _paused   :: Bool  -- ^ Playing vs. paused
                  , _speed    :: Float -- ^ Speed in [0..1]
                  , _interval :: TVar Int -- ^ Interval kept in TVar
+                 , _focus    :: F.FocusRing Name -- ^ Keeps track of grid focus
+                 , _selected :: Cell -- ^ Keeps track of cell focus
                  }
 
 makeLenses ''Game
@@ -53,6 +59,8 @@ initialGame tv = Game { _board    = L.board 20 20 []
                       , _paused   = True
                       , _speed    = initialSpeed
                       , _interval = tv
+                      , _focus    = F.focusRing [GridVP, ExampleVP]
+                      , _selected = (0,19)
                       }
 
 initialSpeed :: Float
@@ -84,10 +92,6 @@ midI = (maxI - minI) `div` 2 + minI
 -- It in and of itself does not "count" anything and thus is not a counter
 data Tick = Tick
 
--- | Name resources (needed for scrollable viewport)
-data Name = ExampleVP
-  deriving (Ord, Show, Eq)
-
 app :: App Game Tick Name
 app = App { appDraw = drawUI
           , appChooseCursor = neverShowCursor -- TODO keep track of "focus" in state
@@ -101,7 +105,7 @@ app = App { appDraw = drawUI
 ---- Drawing
 
 drawUI :: Game -> [Widget Name]
-drawUI g = [ vBox [ drawGrid (g^.board)
+drawUI g = [ vBox [ drawGrid g
                   , hBox $ vLimit 9 . padTopBottom 1
                     <$> [ drawSpeedBar (g^.speed) <=> drawInstruct
                         , drawPButton (g^.paused) <=> drawCButton
@@ -115,20 +119,35 @@ drawUI g = [ vBox [ drawGrid (g^.board)
 -- BIG asterisk *** I wanted this to be reasonably performant,
 -- so I'm leveraging the fact that 'toList' returns ordered tiles.
 --
-drawGrid :: Board -> Widget n
-drawGrid b =
+drawGrid :: Game -> Widget n
+drawGrid g =
   withBorderStyle BS.unicodeBold $
   B.borderWithLabel (str "Game of Life") $
   C.center $
-  fst $ toCols (emptyWidget, toList $ b)
+  fst $ toCols (emptyWidget, toList $ g^.board)
     where toCols :: (Widget n, [(Cell, St)]) -> (Widget n, [(Cell, St)])
           toCols (w,[]) = (w,[])
           toCols (w,xs) = let (c,cs) = splitAt rowT xs
                            in toCols (w <+> mkCol c, cs)
+
           mkCol :: [(Cell, St)] -> Widget n
-          mkCol = foldr (flip (<=>) . renderSt . snd) emptyWidget
+          mkCol = foldr (flip (<=>) . renderSt) emptyWidget
+
           rowT :: Int
-          rowT  = fst . size $ b
+          rowT  = fst . size $ g^.board
+
+          selCell :: Maybe Cell
+          selCell = if (g^.focus^. to F.focusGetCurrent == Just GridVP)
+                       then Just (normalise (g^.board) $ g^.selected)
+                       else Nothing
+
+          renderSt :: (Cell, St) -> Widget n
+          renderSt (c, Alive) = addSelAttr c $ withAttr aliveAttr cw
+          renderSt (c, Dead)  = addSelAttr c $ withAttr deadAttr cw
+
+          addSelAttr :: Cell -> Widget n -> Widget n
+          addSelAttr c = if selCell == Just c then forceAttr selectedAttr else id
+
 
 drawSpeedBar :: Float -> Widget n
 drawSpeedBar s =
@@ -184,13 +203,10 @@ mkButton = B.border . withBorderStyle BS.unicodeRounded . padLeftRight 1
 mkBox :: BS.BorderStyle -> String -> Widget n -> Widget n
 mkBox bs s = withBorderStyle bs . B.borderWithLabel (str s)
 
-renderSt :: St -> Widget n
-renderSt Alive = withAttr aliveAttr cw
-renderSt Dead = withAttr deadAttr cw
-
-aliveAttr, deadAttr :: AttrName
+aliveAttr, deadAttr, selectedAttr :: AttrName
 aliveAttr = "alive"
 deadAttr = "dead"
+selectedAttr = "selected"
 
 pausedAttr, playingAttr :: AttrName
 pausedAttr = "paused"
@@ -203,6 +219,7 @@ gameAttrMap :: AttrMap
 gameAttrMap = attrMap V.defAttr
               [ (aliveAttr,                bg V.white)
               , (deadAttr,                 bg V.black)
+              , (selectedAttr,             bg V.cyan)
               , (pausedAttr,               fg V.green)
               , (playingAttr,              fg V.red)
               , (examplesAttr,             fg V.blue)
@@ -226,6 +243,11 @@ handleEvent g (VtyEvent (V.EvKey V.KRight [V.MCtrl])) = handleSpeed g (+)
 handleEvent g (VtyEvent (V.EvKey V.KLeft [V.MCtrl]))  = handleSpeed g (-)
 handleEvent g (VtyEvent (V.EvKey V.KUp [V.MCtrl]))    = scrollEx (-1) >> continue g
 handleEvent g (VtyEvent (V.EvKey V.KDown [V.MCtrl]))  = scrollEx 1 >> continue g
+handleEvent g (VtyEvent (V.EvKey V.KRight []))        = handleMove g (over _1 succ)
+handleEvent g (VtyEvent (V.EvKey V.KLeft []))         = handleMove g (over _1 pred)
+handleEvent g (VtyEvent (V.EvKey V.KUp []))           = handleMove g (over _2 succ)
+handleEvent g (VtyEvent (V.EvKey V.KDown []))         = handleMove g (over _2 pred)
+handleEvent g (VtyEvent (V.EvKey (V.KChar '\t') []))  = continue $ g & focus %~ F.focusNext
 handleEvent g (VtyEvent (V.EvKey (V.KChar 'n') []))   = continue $ forward g
 handleEvent g (VtyEvent (V.EvKey (V.KChar ' ') []))   = continue $ g & paused %~ not
 handleEvent g (VtyEvent (V.EvKey (V.KChar 'c') []))   = continue $ g & board %~ GM.map (const Dead)
@@ -248,6 +270,12 @@ handleSpeed g (+/-) = do
   let newSp = validS $ (g^.speed) +/- speedInc
   liftIO $ atomically $ writeTVar (g^.interval) (spToInt newSp)
   continue $ g & speed .~ newSp
+
+handleMove :: Game -> (Cell -> Cell) -> EventM n (Next Game)
+handleMove g mv = continue $
+  if (g ^. focus ^. to F.focusGetCurrent /= Just GridVP)
+     then g
+     else g & selected %~ (normalise (g^.board) . mv)
 
 handleExample :: Game -> Char -> EventM n (Next Game)
 handleExample g n = continue $ fromMaybe g mg
