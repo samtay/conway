@@ -79,8 +79,9 @@ expand :: Int -- ^ Top
 expand n e s w b = lazyGridMapIndexed (torOctGrid nh nl) vs
   where (h,l)                = size b
         (nh, nl)             = (h + n + s, l + e + w)
-        vs                   = map translate . add (n + s) (e + w) $ GM.toList b
-        add yn xn            = (++) [((x+l,y+h), Dead) | x <- [0..xn - 1], y <- [0..yn - 1]]
+        vs                   = map translate . addRs . addCs $ GM.toList b
+        addCs                = (++) [((x+l,y), Dead) | x <- [0..e + w], y <- [0..nh - 1]]
+        addRs                = (++) [((x,y+h), Dead) | x <- [0..nl - 1], y <- [0..n + s]]
         translate ((x,y), v) = let nx = (x + w) `mod` nl
                                    ny = (y + s) `mod` nh
                                 in ((nx, ny), v)

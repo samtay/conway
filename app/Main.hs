@@ -48,7 +48,7 @@ makeLenses ''Game
 
 -- | Initial game with empty board
 initialGame :: TVar Int -> Game
-initialGame tv = Game { _board    = L.board minG minG []
+initialGame tv = Game { _board    = L.board 20 20 []
                       , _time     = 0
                       , _paused   = True
                       , _speed    = initialSpeed
@@ -102,7 +102,7 @@ app = App { appDraw = drawUI
 
 drawUI :: Game -> [Widget Name]
 drawUI g = [ vBox [ drawGrid (g^.board)
-                  , hBox $ padTopBottom 1 . vLimit 6
+                  , hBox $ vLimit 9 . padTopBottom 1
                     <$> [ drawSpeedBar (g^.speed) <=> drawInstruct
                         , drawPButton (g^.paused) <=> drawCButton
                         , drawExamples
@@ -144,6 +144,7 @@ drawInstruct = padBottom Max $ str $
   "Press 'space' to toggle play/pause,    'n' to take 1 step,\n\
   \Ctrl-left, Ctrl-right to vary speed,   'c' to clear the board,\n\
   \Ctrl-up, Ctrl-down to scroll examples, '1,2,..' to draw an example,\n\
+  \'+_=-' to expand/contract horizontally/vertically,\n\
   \and ESC to quit."
 
 drawPButton :: Bool -> Widget n
@@ -213,10 +214,6 @@ gameAttrMap = attrMap V.defAttr
 cw :: Widget n
 cw = str "  "
 
--- | Min grid side
-minG :: Int
-minG = 30
-
 ---- Events
 
 -- TODO look in mouse demo for handling mouse events in different layers!
@@ -232,6 +229,10 @@ handleEvent g (VtyEvent (V.EvKey V.KDown [V.MCtrl]))  = scrollEx 1 >> continue g
 handleEvent g (VtyEvent (V.EvKey (V.KChar 'n') []))   = continue $ forward g
 handleEvent g (VtyEvent (V.EvKey (V.KChar ' ') []))   = continue $ g & paused %~ not
 handleEvent g (VtyEvent (V.EvKey (V.KChar 'c') []))   = continue $ g & board %~ GM.map (const Dead)
+handleEvent g (VtyEvent (V.EvKey (V.KChar '-') []))   = continue $ g & board %~ contract 1 0 1 0
+handleEvent g (VtyEvent (V.EvKey (V.KChar '_') []))   = continue $ g & board %~ contract 0 1 0 1
+handleEvent g (VtyEvent (V.EvKey (V.KChar '=') []))   = continue $ g & board %~ expand 1 0 1 0
+handleEvent g (VtyEvent (V.EvKey (V.KChar '+') []))   = continue $ g & board %~ expand 0 1 0 1
 handleEvent g (VtyEvent (V.EvKey (V.KChar 'q') []))   = halt g
 handleEvent g (VtyEvent (V.EvKey (V.KChar n) []))
   | n `elem` ['0'..'9']                               = handleExample g n
@@ -262,7 +263,7 @@ scrollEx n = (viewportScroll ExampleVP) `vScrollBy` n
 validS :: Float -> Float
 validS = clamp 0 1
 
--- | Get interval from progress bar float (between 1 and
+-- | Get interval from progress bar float
 spToInt :: Float -> Int
 spToInt = floor . toInterval . validS
   where toInterval x = (fromIntegral $ maxI - minI) * (1 - x)
