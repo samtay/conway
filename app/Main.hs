@@ -16,7 +16,7 @@ import qualified Life as L
 import qualified Life.Examples as LE
 import Math.Geometry.Grid (size, contains)
 import Math.Geometry.GridInternal (normalise)
-import Math.Geometry.GridMap (toList)
+import Math.Geometry.GridMap (toList, adjust)
 import qualified Math.Geometry.GridMap as GM
 
 import Brick
@@ -106,7 +106,7 @@ app = App { appDraw = drawUI
 
 drawUI :: Game -> [Widget Name]
 drawUI g = [ vBox [ drawGrid g
-                  , hBox $ vLimit 9 . padTopBottom 1
+                  , hBox $ vLimit 10 . padTopBottom 1
                     <$> [ drawSpeedBar (g^.speed) <=> drawInstruct
                         , drawPButton (g^.paused) <=> drawCButton
                         , drawExamples
@@ -160,11 +160,12 @@ drawSpeedBar s =
 
 drawInstruct :: Widget n
 drawInstruct = padBottom Max $ str $
-  "Press 'space' to toggle play/pause,    'n' to take 1 step,\n\
-  \Ctrl-left, Ctrl-right to vary speed,   'c' to clear the board,\n\
-  \Ctrl-up, Ctrl-down to scroll examples, '1,2,..' to draw an example,\n\
+  "Press 'space' to toggle play/pause,  'n' to take 1 step,\n\
+  \Ctrl(left, right) to vary speed,     'c' to clear the board,\n\
+  \Ctrl(up, down) to scroll examples,   '1,2,..' to draw an example,\n\
+  \(left,right,up,down) to scroll grid, 'Enter' to toggle cell state,\n\
   \'+_=-' to expand/contract horizontally/vertically,\n\
-  \and ESC to quit."
+  \'Tab' to move focus,                  and ESC to quit."
 
 drawPButton :: Bool -> Widget n
 drawPButton pause = mkButton $
@@ -178,8 +179,8 @@ drawCButton = mkButton $ str "Clear (c)"
 drawExamples :: Widget Name
 drawExamples =
   withAttr examplesAttr $
-  mkBox BS.unicodeRounded "Examples (Press number)" $
-  vLimit 4 $ hLimit 24 $
+  mkBox BS.unicodeRounded "Examples (Press #)" $
+  vLimit 4 $ hLimit 19 $
   viewport ExampleVP Vertical $
   padRight Max $
   str $ unlines $ zipWith lbl [0..] examples
@@ -247,6 +248,7 @@ handleEvent g (VtyEvent (V.EvKey V.KRight []))        = handleMove g (over _1 su
 handleEvent g (VtyEvent (V.EvKey V.KLeft []))         = handleMove g (over _1 pred)
 handleEvent g (VtyEvent (V.EvKey V.KUp []))           = handleMove g (over _2 succ)
 handleEvent g (VtyEvent (V.EvKey V.KDown []))         = handleMove g (over _2 pred)
+handleEvent g (VtyEvent (V.EvKey V.KEnter []))        = onlyWhenFocused g GridVP $ handleSel g
 handleEvent g (VtyEvent (V.EvKey (V.KChar '\t') []))  = continue $ g & focus %~ F.focusNext
 handleEvent g (VtyEvent (V.EvKey (V.KChar 'n') []))   = continue $ forward g
 handleEvent g (VtyEvent (V.EvKey (V.KChar ' ') []))   = continue $ g & paused %~ not
@@ -271,11 +273,14 @@ handleSpeed g (+/-) = do
   liftIO $ atomically $ writeTVar (g^.interval) (spToInt newSp)
   continue $ g & speed .~ newSp
 
-handleMove :: Game -> (Cell -> Cell) -> EventM n (Next Game)
-handleMove g mv = continue $
-  if (g ^. focus ^. to F.focusGetCurrent /= Just GridVP)
-     then g
-     else g & selected %~ (normalise (g^.board) . mv)
+handleMove :: Game -> (Cell -> Cell) -> EventM Name (Next Game)
+handleMove g mv = onlyWhenFocused g GridVP $ continue $
+     g & selected %~ (normalise (g^.board) . mv)
+
+handleSel :: Game -> EventM Name (Next Game)
+handleSel g = handleMove
+  (g & board %~ (adjust toggle $ g^.selected))
+  (over _1 succ)
 
 handleExample :: Game -> Char -> EventM n (Next Game)
 handleExample g n = continue $ fromMaybe g mg
@@ -291,11 +296,20 @@ scrollEx n = (viewportScroll ExampleVP) `vScrollBy` n
 validS :: Float -> Float
 validS = clamp 0 1
 
+toggle :: St -> St
+toggle Alive = Dead
+toggle Dead  = Alive
+
 -- | Get interval from progress bar float
 spToInt :: Float -> Int
 spToInt = floor . toInterval . validS
   where toInterval x = (fromIntegral $ maxI - minI) * (1 - x)
                         + fromIntegral minI
+
+onlyWhenFocused :: Game -> Name -> EventM Name (Next Game) -> EventM Name (Next Game)
+onlyWhenFocused g n act = if (g ^. focus ^. to F.focusGetCurrent == Just n)
+                             then act
+                             else continue g
 
 -- Runtime
 
