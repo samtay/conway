@@ -17,8 +17,11 @@ library
   hs-source-dirs:      src
   exposed-modules:     Life
                      , Life.Examples
-  build-depends:       base >= 4.7 && < 5
-                     , grid >= 7.8.7 && < 8
+  build-depends:       base
+                     , comonad >= 5
+                     , containers >= 0.5.7
+                     , microlens >= 0.4.7.0
+                     , microlens-th >= 0.4.1.1
   default-language:    Haskell2010
 
 executable life
@@ -28,7 +31,6 @@ executable life
   build-depends:       base
                      , brick >= 0.17 && < 1
                      , conway
-                     , grid >= 7.8.8 && < 8
                      , microlens >= 0.4.7.0
                      , microlens-th >= 0.4.1.1
                      , stm >= 2.4.4
