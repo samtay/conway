@@ -10,6 +10,9 @@
 -----------------------------------------------------------------------------
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE ConstrainedClassMethods #-}
+{-# LANGUAGE TupleSections #-}
 module Life
   (
   -- * Types
@@ -17,7 +20,8 @@ module Life
   , Cell
   , St(..)
   , Zipper(..)
-  , Z(..) , ZDirection(..)-- todo remove ?
+  , Z
+  , ZZ
   -- * Construction
   , board
   , resize
@@ -28,12 +32,13 @@ module Life
   ) where
 
 import qualified Data.Foldable as F
-import Data.List (nub)
-import Data.Maybe (mapMaybe)
+import Data.List (nub, intercalate)
+import Data.Maybe (mapMaybe, fromMaybe)
 
 import Data.Sequence (ViewL(..), ViewR(..), (|>), (<|), (><))
 import qualified Data.Sequence as S
 import Control.Comonad
+import Lens.Micro
 import Lens.Micro.TH
 
 -- | A modular game of life board
@@ -47,7 +52,7 @@ type Cell = (Int, Int)
 
 -- | Possible cell states
 data St = Alive | Dead
-  deriving (Eq, Show)
+  deriving (Eq)
 
 -- | Class for a modular bounded container
 --
@@ -66,21 +71,26 @@ class Zipper z where
   index :: z a -> Index z
 
   -- | Retrieve neighborhood of current cursor.
+  -- TODO consider keeping in Seq instead of []
   neighborhood :: z a -> [a]
 
   -- | Destruct to list maintaining order of @(Index z)@, e.g. @(Z ls c rs) -> ls ++ [c] ++ rs@.
   toList :: z a -> [a]
 
-  -- | Like 'toList' but as a mapping with indices.
-  toMap :: z a -> [(Index z, a)]
-
-  -- | Construct zipper from list with starting cursor position, e.g. @(x:xs) -> Z [] x xs@.
-  fromList :: [a] -> z a
+  -- | Construct zipper from mapping (provide default value so this is always safe, no bottoms)
+  fromMap :: Ord (Index z) => a -> [(Index z, a)] -> z a
 
   -- | Lookup by possibly denormalised index (still safe from modularity).
   --
   -- e.g. [1,2] ! 2 == 1
   (!) :: z a -> (Index z) -> a
+
+  -- | Adjust value at specified index
+  adjust :: (a -> a) -> Index z -> z a -> z a
+
+  -- | Update value at specified index
+  update :: a -> Index z -> z a -> z a
+  update x = adjust (const x)
 
   -- | Normalize @Index z@ value with respect to modular boundaries
   normalize :: z a -> (Index z) -> (Index z)
@@ -98,57 +108,135 @@ class Zipper z where
 data Z a = Z { _zl :: S.Seq a
              , _zc :: a
              , _zi :: Int
-             } deriving (Show)
+             } deriving (Eq, Show)
 
 data ZDirection = L | R
   deriving (Eq, Show)
 
 newtype ZZ a = ZZ { unZZ :: Z (Z a) }
+  deriving (Eq) -- TODO possibly implement equality up to shifting
+
+data ZZDirection = N | NE | E | SE | S | SW | W | NW
+  deriving (Eq, Show)
 
 makeLenses ''Z
 
 instance Zipper Z where
   type Index Z = Int
   type Direction Z = ZDirection
-  shift d z@(Z l c i)
-    | S.length l == 0 = z -- shifting length zero amounts to nothing
-    | d == L          = let (x :< xs) = S.viewl l
-                            ni        = (i - 1) `mod` size z
-                         in Z (xs |> c) x ni
-    | d == R          = let (xs :> x) = S.viewr l
-                            ni        = (i + 1) `mod` size z
-                         in Z (c <| xs) x ni
   cursor = _zc
   index = _zi
-  neighborhood (Z l _ _) = mapMaybe (lookupS l) . nub $ [0, S.length l - 1]
-  toList (Z l c i) = F.toList . S.reverse $ b >< (c <| f)
-    where (f,b) = S.splitAt i l
-  toMap = zip [0..] . toList
-  fromList []     = error "Zipper must have length greater than zero."
-  fromList (x:xs) = Z (S.reverse $ S.fromList xs) x 0
+  neighborhood (Z l _ _)
+    | S.length l <= 2 = F.toList l
+    | otherwise       = map (S.index l) [0, S.length l - 1]
   normalize z = (`mod` (size z))
   size (Z l _ _) = S.length l + 1
-  z ! k = fnd z (normalize z k)
-    where fnd (Z l c i) n
-            | i == n    = c
-            | i < n     = S.index l $ (s - (n - i) - 1)
-            | i > n     = S.index l $ n - i - 1
-          s = size z
+  (!) z@(Z l c i) = maybe c (S.index l) . zToLix z
+  adjust f k z@(Z l c i) =
+    maybe
+      (Z l (f c) i)
+      (\j -> Z (S.adjust f j l) c i)
+      (zToLix z k)
+  toList (Z l c i) = F.toList . S.reverse $ b >< (c <| f)
+    where (f,b) = S.splitAt i l
+  fromMap _ [] = error "Zipper must have length greater than zero."
+  fromMap a m  = Z (S.fromList ys) (iToa 0) 0
+    where ys = map iToa rng
+          iToa i = fromMaybe a $ lookup i m
+          l    = maximum . (0:) $ map fst m
+          rng  = if l == 0 then [] else [l,(l-1)..1]
+  shift d z@(Z l c i)
+    | S.length l == 0 = z -- shifting length zero amounts to nothing
+    | d == L          = Z (xs |> c) x xi
+    | d == R          = Z (c <| xs) x yi
+    where
+      (x :< xs) = S.viewl l
+      (ys :> y) = S.viewr l
+      xi        = (i - 1) `mod` size z
+      yi        = (i + 1) `mod` size z
 
+-- | Transform 'Index z' into the index of the @S.Seq@ that @z@ contains
+-- unless it is equivalent to current index.
+zToLix :: Z a -> Int -> Maybe Int
+zToLix z@(Z _ _ i) k
+  | i == n = Nothing
+  | i < n  = Just $ s - (n - i) - 1
+  | i > n  = Just $ n - i - 1
+  where n = k `mod` s
+        s = size z
 
 instance Functor Z where
   fmap f (Z l c i) = Z (fmap f l) (f c) i
 
 instance Comonad Z where
   extract (Z _ c _)  = c
-  extend f z@(Z l _ i) = undefined
+  duplicate z@(Z _ _ i) = Z (S.fromFunction (size z - 1) fn) z i
+    where fn k = compose (k + 1) (shift L) $ z
+
+instance Functor ZZ where
+  fmap f = ZZ . (fmap . fmap) f . unZZ
+
+-- | This interpretation is a 2D zipper (Z (Z a)).
+--
+-- The outer layer is a zipper of columns (x coordinate),
+-- and each column is a zipper of @a@ values (y coordinate).
+-- Warning: Keep inner column sizes consistent!
+instance Zipper ZZ where
+  type Index ZZ = (Int, Int)
+  type Direction ZZ = ZZDirection
+  cursor = _zc . _zc . unZZ
+  toList = concatMap toList . toList . unZZ
+  shift = undefined -- shifting up/down should shift all columns up/down
+  adjust f k (ZZ z) = undefined
+  normalize z (x,y) = (nx, ny)
+    where nx = x `mod` z ^. to size ^. _1
+          ny = y `mod` z ^. to size ^. _2
+  (!) zz@(ZZ z) (x, y) = getAtIx c mk
+    where (mj, mk) = zzToLix zz (x,y)
+          c        = getAtIx z mj
+  size (ZZ z) = (x, y)
+    where x = size z
+          y = z ^. zc ^. to size
+  index (ZZ z) = (x, y)
+    where x = z ^. zi
+          y = z ^. zc ^. zi
+  neighborhood (ZZ (Z cs c x)) = cNSs ++ cEs ++ cWs
+    where cNSs = neighborhood c
+          cWs  = case S.viewl cs of
+                   (cw :< _) -> (cw ^. zc) : neighborhood cw
+                   _         -> []
+          cEs  = case S.viewr cs of
+                   (_ :> ce) -> (ce ^. zc) : neighborhood ce
+                   _         -> []
+  fromMap _ [] = error "Zipper must have length greater than zero."
+  fromMap a m  = ZZ $ Z (S.fromList cs) (iToc 0) 0
+    where cs        = map iToc rc
+          iToc i    = fromMap a . insDef . map (& _1 %~ snd) $ filter ((==i) . fst . fst) m
+          l         = maximum . (0:) $ map (fst . fst) m
+          h         = maximum . (0:) $ map (snd . fst) m
+          rc        = if l == 0 then [] else [l,(l-1)..1]
+          insDef xs = if h `elem` (map fst xs) then xs else (h,a) : xs
+
+zzToLix :: ZZ a -> (Int, Int) -> (Maybe Int, Maybe Int)
+zzToLix (ZZ z) (j,k) = (mj, mk)
+  where mj = zToLix z j
+        c  = getAtIx z mj
+        mk = zToLix c k
+
+-- | Helper function for internal use. Expects @Int@ argument to be
+-- normalized already (probably returned from *ToLix)
+getAtIx :: Z a -> Maybe Int -> a
+getAtIx z = maybe (z ^. zc) (z ^. zl ^. to S.index)
 
 -- | Create a board with given height, length, and initial state
-board :: Int -- ^ Height
-      -> Int -- ^ Length
+board :: Int -- ^ Length
+      -> Int -- ^ Height
       -> [Cell] -- ^ List of cells initially alive
       -> Board
-board h l = undefined
+board l h cs = fromMap Dead $ map (,Alive) cs
+
+  --(\c -> (,) c $ if c `elem` cs then Dead else Alive)
+ -- [(x,y) | x <- [0..l-1], y <- [0..h-1]]
 
 -- | Adjusts the number of columns and rows respectively.
 --
@@ -166,29 +254,24 @@ population = undefined -- length . filter (==Alive) . ...
 gameover :: Board -> Bool
 gameover = (== 0) . population
 
--- | Overlap show instance so we can see a nice grid of values
---
 -- Nice when sanity checking or playing in the REPL
--- TODO this is obviously bad issuing a lookup for each cell
--- Use toList and then order it into list of type :: [St]
-{-
-instance {-# OVERLAPPING #-} Show Board where
-  show b = unlines . reverse $ map mkRow [0..rowT - 1]
-    where (rowT, colT)      = size b
+--
+-- Warning: slow since I implement outer layer as column
+-- and this must be rendered first as rows.
+instance Show a => Show (ZZ a) where
+  show z = unlines $ map mkRow [rowT - 1,rowT - 2..0]
+    where (colT, rowT) = size z
+          mkRow y      = intercalate "|"
+            $ map (show . (z !) . (,y)) [0..colT - 1]
 
-          mkRow :: Int -> String
-          mkRow y = intersperse '|' $
-            map (toX_ . query . (,y)) [0..colT - 1]
-
-          query :: Cell -> Maybe St
-          query = (`GM.lookup` b)
-
-          toX_ :: Maybe St -> Char
-          toX_ (Just Alive) = 'X'
-          toX_ _            = '_'
-          -}
+instance Show St where
+  show Alive = "X"
+  show Dead  = "_"
 
 lookupS :: S.Seq a -> Int -> Maybe a
 lookupS s n
   | 0 <= n && n < S.length s = Just $ S.index s n
   | otherwise                = Nothing
+
+compose :: Int -> (a -> a) -> (a -> a)
+compose = (foldr (.) id .) . replicate
