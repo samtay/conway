@@ -9,6 +9,7 @@
 --
 -----------------------------------------------------------------------------
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE Rank2Types #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE ConstrainedClassMethods #-}
@@ -38,6 +39,7 @@ import Data.Maybe (mapMaybe, fromMaybe)
 import Data.Sequence (ViewL(..), ViewR(..), (|>), (<|), (><))
 import qualified Data.Sequence as S
 import Control.Comonad
+import qualified Lens.Micro.Internal as L
 import Lens.Micro
 import Lens.Micro.TH
 
@@ -275,3 +277,22 @@ lookupS s n
 
 compose :: Int -> (a -> a) -> (a -> a)
 compose = (foldr (.) id .) . replicate
+
+-------------------- Some Lens explorations --------------------
+
+type instance L.Index   (Z a) = Int
+type instance L.IxValue (Z a) = a
+
+-- | Cool! 'Z' is now 'ix'able!
+instance L.Ixed (Z a) where
+  ix k f z@(Z l c i) = maybe
+    ((\c' -> Z l c' i) <$> f (z ^. zc))
+    (\i -> (\l' -> Z l' c i) . (\a -> S.update i a l) <$> f (z ^. zl ^. to (`S.index` i)))
+    (zToLix z k)
+
+-- My own lens! Although 'ix' usage is probably more standard than this.
+zix :: Int -> Lens' (Z a) a
+zix k f z@(Z l c i) = maybe
+  ((\x -> Z l x i) <$> f c)
+  (\n -> (\x -> Z (S.update n x l) c i) <$> f (S.index l n))
+  (zToLix z k)
