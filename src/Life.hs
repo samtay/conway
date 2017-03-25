@@ -128,17 +128,13 @@ instance Zipper Z where
   type Direction Z = ZDirection
   cursor = _zc
   index = _zi
+  normalize z = (`mod` (size z))
+  size (Z l _ _) = S.length l + 1
+  (!) z k = z ^. zix k
+  adjust f k z = z & zix k %~ f
   neighborhood (Z l _ _)
     | S.length l <= 2 = F.toList l
     | otherwise       = map (S.index l) [0, S.length l - 1]
-  normalize z = (`mod` (size z))
-  size (Z l _ _) = S.length l + 1
-  (!) z@(Z l c i) = maybe c (S.index l) . zToLix z
-  adjust f k z@(Z l c i) =
-    maybe
-      (Z l (f c) i)
-      (\j -> Z (S.adjust f j l) c i)
-      (zToLix z k)
   toList (Z l c i) = F.toList . S.reverse $ b >< (c <| f)
     where (f,b) = S.splitAt i l
   fromMap _ [] = error "Zipper must have length greater than zero."
@@ -189,13 +185,11 @@ instance Zipper ZZ where
   cursor = _zc . _zc . unZZ
   toList = concatMap toList . toList . unZZ
   shift = undefined -- shifting up/down should shift all columns up/down
-  adjust f k (ZZ z) = undefined
+  adjust f (x, y) (ZZ z) = ZZ $ z & (zix x . zix y) %~ f
+  (!) (ZZ z) (x, y) = z ^. zix x ^. zix y
   normalize z (x,y) = (nx, ny)
     where nx = x `mod` z ^. to size ^. _1
           ny = y `mod` z ^. to size ^. _2
-  (!) zz@(ZZ z) (x, y) = getAtIx c mk
-    where (mj, mk) = zzToLix zz (x,y)
-          c        = getAtIx z mj
   size (ZZ z) = (x, y)
     where x = size z
           y = z ^. zc ^. to size
@@ -218,17 +212,6 @@ instance Zipper ZZ where
           h         = maximum . (0:) $ map (snd . fst) m
           rc        = if l == 0 then [] else [l,(l-1)..1]
           insDef xs = if h `elem` (map fst xs) then xs else (h,a) : xs
-
-zzToLix :: ZZ a -> (Int, Int) -> (Maybe Int, Maybe Int)
-zzToLix (ZZ z) (j,k) = (mj, mk)
-  where mj = zToLix z j
-        c  = getAtIx z mj
-        mk = zToLix c k
-
--- | Helper function for internal use. Expects @Int@ argument to be
--- normalized already (probably returned from *ToLix)
-getAtIx :: Z a -> Maybe Int -> a
-getAtIx z = maybe (z ^. zc) (z ^. zl ^. to S.index)
 
 -- | Create a board with given height, length, and initial state
 board :: Int -- ^ Length
@@ -290,7 +273,14 @@ instance L.Ixed (Z a) where
     (\i -> (\l' -> Z l' c i) . (\a -> S.update i a l) <$> f (z ^. zl ^. to (`S.index` i)))
     (zToLix z k)
 
--- My own lens! Although 'ix' usage is probably more standard than this.
+-- My own lens! Although 'ix' usage is probably more standard than this,
+-- it is not possible to use 'ix' as a direct getter: z ^. ix 3
+-- does not behave as expected and wants a monoid instance; perhaps is
+-- attempting to fold in this context?
+-- You can use z ^? ix 3 to get back a Maybe value, but if I know my
+-- getter is safe, I don't got time for dat.
+--
+-- Might be that I want the 'At' instance..
 zix :: Int -> Lens' (Z a) a
 zix k f z@(Z l c i) = maybe
   ((\x -> Z l x i) <$> f c)
