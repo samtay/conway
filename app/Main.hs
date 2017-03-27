@@ -326,28 +326,7 @@ printResult g = mapM_ putStrLn
     where p = show $ population $ g^.board
           t = show $ g^.time
 
-
--- Layer with "how to" info (see layer demo on not interfering with grid)
 -- Little floating box with current time & population
--- Grid with squares that can be traversed via arrow keys
--- Spacebar to toggle Alive / Dead
--- Mouse click on
-  -- cell -> toggle Alive/Dead
-  -- take a look at MouseDemo.hs -- probably need layer for each box?
+-- Small text at the bottom with current grid size, e.g. 200 x 220
 -- Change grid size on terminal resize (& start grid size based on this)
   -- Ah. We need custom widgets for contextual info: https://github.com/jtdaugherty/brick/blob/master/docs/guide.rst#implementing-custom-widgets
--- Small text at the bottom with current grid size, e.g. 200 x 220
-
--- Possible features
-  -- Typeclass for cellular automata ca g st (only 2d ?, maybe 2d subclass ?)
-    -- methods: size :: (Int, Int)
-    --          step :: (ca -> ca)
-    --          rule :: (g -> st -> st) ? hmm need to think more about this
-  -- Allow two list boxes that specify exactly how many live neighbors results in Live cell,
-     -- for alive/dead cells respectively
-     -- cool for people exploring rules of cellular automata
-
--- Questions/Thoughts
-  -- Profile via criterion before asking r/haskell for performance advice
-  -- Why doesn't below work? Keyboard/terminal specifics?
-    --handleEvent g (VtyEvent (V.EvKey (V.KChar ' ') [V.MShift])) = continue $ forward g
