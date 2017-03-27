@@ -158,8 +158,8 @@ instance Functor Z where
   fmap f (Z l c i) = Z (fmap f l) (f c) i
 
 instance Comonad Z where
-  extract (Z _ c _)  = c
-  duplicate z@(Z _ _ i) = Z (S.fromFunction (size z - 1) fn) z i
+  extract = cursor
+  duplicate z = Z (S.fromFunction (size z - 1) fn) z (z ^. zi)
     where fn k = compose (k + 1) (shift L) $ z
 
 -- | This interpretation is a 2D zipper (Z (Z a)).
@@ -208,16 +208,15 @@ instance Functor ZZ where
   fmap f = ZZ . (fmap . fmap) f . _unzz
 
 instance Comonad ZZ where
-  extract = (^. unzz . zc . zc)
+  extract = cursor
   duplicate z = ZZ $ Z
     (fromF (xT - 1) mkCol) (Z (fromF (yT - 1) (mkRow z)) z y) x
     where
       mkRow zx j = compose (j + 1) (shift S) zx
       mkCol i    = let zx = compose (i + 1) (shift W) z
-                    in Z (fromF (yT - 1) (mkRow zx)) zx (zx ^. unzz ^. zc ^. zi)
+                    in Z (fromF (yT - 1) (mkRow zx)) zx (zx ^. to index  ^. _2)
       (xT,yT)    = size z
-      x          = z ^. unzz ^. zi
-      y          = z ^. unzz ^. zc ^. zi
+      (x,y)      = index z
       fromF      = S.fromFunction
 
 -- | Create a board with given height, length, and initial state
@@ -251,6 +250,7 @@ resize l h = resizeH h . resizeL l
         consLc l z = let c = fmap (const Dead) $ z ^. zc
                       in z & zl %~ compose l (c <|)
 
+-- | Step the game forward
 step :: Board -> Board
 step = extend rule
   where p = length . filter (==Alive) . neighborhood
