@@ -16,20 +16,21 @@
 {-# LANGUAGE TupleSections #-}
 module Life
   (
-  -- * Types
+  -- * Types and classes
     Board
   , Cell
   , St(..)
   , Zipper(..)
-  , Z
-  , ZZ
+  , Direction(..)
   -- * Construction
   , board
-  , resize
   -- * Running the game
   , step
   , population
   , gameover
+  , resize
+  -- * Lenses
+  , unzz, zl, zc, zi, zix
   ) where
 
 import qualified Data.Foldable as F
@@ -56,12 +57,30 @@ type Cell = (Int, Int)
 data St = Alive | Dead
   deriving (Eq)
 
+-- | One dimensional finite list with cursor context
+--
+-- The first element of the sequence at '_zl' can be thought of
+-- as /to the left/ of the cursor, while the last element is /to the right/
+-- of the cursor. The cursor value and index are '_zc' and '_zi' respectively.
+-- This can be thought of as a circle.
+-- Warning: must have length greater than zero!
+data Z a = Z { _zl :: S.Seq a
+             , _zc :: a
+             , _zi :: Int
+             } deriving (Eq, Show)
+
+newtype ZZ a = ZZ { _unzz :: Z (Z a) }
+  deriving (Eq) -- TODO possibly implement equality up to shifting
+
+makeLenses ''Z
+makeLenses ''ZZ
+
 -- | Class for a modular bounded container
 --
 -- Examples of functions provided for a simple one dimensional list, where appropriate
 class Zipper z where
   type Index z
-  type Direction z
+  data Direction z
 
   -- | Shift in a direction
   shift :: Direction z -> z a -> z a
@@ -92,7 +111,7 @@ class Zipper z where
 
   -- | Update value at specified index
   update :: a -> Index z -> z a -> z a
-  update x = adjust (const x)
+  update = adjust . const
 
   -- | Normalize @Index z@ value with respect to modular boundaries
   normalize :: z a -> (Index z) -> (Index z)
@@ -100,32 +119,10 @@ class Zipper z where
   -- | Get size (maximum of @Index z@).
   size :: z a -> (Index z)
 
--- | One dimensional finite list with cursor context
---
--- The first element of the sequence at '_zl' can be thought of
--- as /to the left/ of the cursor, while the last element is /to the right/
--- of the cursor. The cursor value and index are '_zc' and '_zi' respectively.
--- This can be thought of as a circle.
--- Warning: must have length greater than zero!
-data Z a = Z { _zl :: S.Seq a
-             , _zc :: a
-             , _zi :: Int
-             } deriving (Eq, Show)
-
-data ZDirection = L | R
-  deriving (Eq, Show)
-
-newtype ZZ a = ZZ { unZZ :: Z (Z a) }
-  deriving (Eq) -- TODO possibly implement equality up to shifting
-
-data ZZDirection = N | NE | E | SE | S | SW | W | NW
-  deriving (Eq, Show)
-
-makeLenses ''Z
-
 instance Zipper Z where
   type Index Z = Int
-  type Direction Z = ZDirection
+  data Direction Z = L | R deriving (Eq, Show)
+
   cursor = _zc
   index = _zi
   normalize z = (`mod` (size z))
@@ -146,22 +143,12 @@ instance Zipper Z where
   shift d z@(Z l c i)
     | S.length l == 0 = z -- shifting length zero amounts to nothing
     | d == L          = Z (xs |> c) x xi
-    | d == R          = Z (c <| xs) x yi
+    | d == R          = Z (c <| ys) y yi
     where
       (x :< xs) = S.viewl l
       (ys :> y) = S.viewr l
       xi        = (i - 1) `mod` size z
       yi        = (i + 1) `mod` size z
-
--- | Transform 'Index z' into the index of the @S.Seq@ that @z@ contains
--- unless it is equivalent to current index.
-zToLix :: Z a -> Int -> Maybe Int
-zToLix z@(Z _ _ i) k
-  | i == n = Nothing
-  | i < n  = Just $ s - (n - i) - 1
-  | i > n  = Just $ n - i - 1
-  where n = k `mod` s
-        s = size z
 
 instance Functor Z where
   fmap f (Z l c i) = Z (fmap f l) (f c) i
@@ -171,9 +158,6 @@ instance Comonad Z where
   duplicate z@(Z _ _ i) = Z (S.fromFunction (size z - 1) fn) z i
     where fn k = compose (k + 1) (shift L) $ z
 
-instance Functor ZZ where
-  fmap f = ZZ . (fmap . fmap) f . unZZ
-
 -- | This interpretation is a 2D zipper (Z (Z a)).
 --
 -- The outer layer is a zipper of columns (x coordinate),
@@ -181,29 +165,32 @@ instance Functor ZZ where
 -- Warning: Keep inner column sizes consistent!
 instance Zipper ZZ where
   type Index ZZ = (Int, Int)
-  type Direction ZZ = ZZDirection
-  cursor = _zc . _zc . unZZ
-  toList = concatMap toList . toList . unZZ
-  shift = undefined -- shifting up/down should shift all columns up/down
-  adjust f (x, y) (ZZ z) = ZZ $ z & (zix x . zix y) %~ f
-  (!) (ZZ z) (x, y) = z ^. zix x ^. zix y
+  data Direction ZZ = N | E | S | W deriving (Eq, Show)
+
+  cursor = _zc . _zc . _unzz
+  toList = concatMap toList . toList . _unzz
+  adjust f (x, y) z = z & (unzz . zix x . zix y) %~ f
+  (!) z (x, y) = z ^. unzz ^. zix x ^. zix y
   normalize z (x,y) = (nx, ny)
     where nx = x `mod` z ^. to size ^. _1
           ny = y `mod` z ^. to size ^. _2
-  size (ZZ z) = (x, y)
-    where x = size z
-          y = z ^. zc ^. to size
-  index (ZZ z) = (x, y)
-    where x = z ^. zi
-          y = z ^. zc ^. zi
-  neighborhood (ZZ (Z cs c x)) = cNSs ++ cEs ++ cWs
-    where cNSs = neighborhood c
-          cWs  = case S.viewl cs of
-                   (cw :< _) -> (cw ^. zc) : neighborhood cw
-                   _         -> []
-          cEs  = case S.viewr cs of
-                   (_ :> ce) -> (ce ^. zc) : neighborhood ce
-                   _         -> []
+  size z = (x, y)
+    where x = z ^. unzz ^. to size
+          y = z ^. unzz ^. zc ^. to size
+  index z = (x, y)
+    where x = z ^. unzz ^. zi
+          y = z ^. unzz ^. zc ^. zi
+  shift E = (& unzz %~ shift R)
+  shift W = (& unzz %~ shift L)
+  shift N = (& unzz %~ fmap (shift R))
+  shift S = (& unzz %~ fmap (shift L))
+  neighborhood (ZZ (Z l c _)) = ns ++ ew
+    where ns  = neighborhood c
+          ewc = if (S.length l <= 2)
+                   then F.toList l
+                   else map (S.index l) [0, S.length l - 1]
+          ew  = concatMap neighborhood' ewc
+          neighborhood' z = (z ^. zc) : neighborhood z
   fromMap _ [] = error "Zipper must have length greater than zero."
   fromMap a m  = ZZ $ Z (S.fromList cs) (iToc 0) 0
     where cs        = map iToc rc
@@ -213,20 +200,37 @@ instance Zipper ZZ where
           rc        = if l == 0 then [] else [l,(l-1)..1]
           insDef xs = if h `elem` (map fst xs) then xs else (h,a) : xs
 
+instance Functor ZZ where
+  fmap f = ZZ . (fmap . fmap) f . _unzz
+
+instance Comonad ZZ where
+  extract = (^. unzz . zc . zc)
+  duplicate z = ZZ $ Z
+    (fromF (xT - 1) mkCol) (Z (fromF (yT - 1) (mkRow z)) z y) x
+    where
+      mkRow zx j = compose (j + 1) (shift S) zx
+      mkCol i    = let zx = compose (i + 1) (shift W) z
+                    in Z (fromF (yT - 1) (mkRow zx)) zx (zx ^. unzz ^. zc ^. zi)
+      (xT,yT)    = size z
+      x          = z ^. unzz ^. zi
+      y          = z ^. unzz ^. zc ^. zi
+      fromF      = S.fromFunction
+
 -- | Create a board with given height, length, and initial state
 board :: Int -- ^ Length
       -> Int -- ^ Height
       -> [Cell] -- ^ List of cells initially alive
       -> Board
-board l h cs = fromMap Dead $ map (,Alive) cs
-
-  --(\c -> (,) c $ if c `elem` cs then Dead else Alive)
- -- [(x,y) | x <- [0..l-1], y <- [0..h-1]]
+board l h = fromMap Dead . ins (l-1,h-1) . map (,Alive)
+  where ins m cs = if (m, Alive) `elem` cs
+                      then cs
+                      else ((m, Dead):cs)
 
 -- | Adjusts the number of columns and rows respectively.
 --
 -- For example @resize (-1) 1@ will remove one column and add one row.
-resize = undefined
+resize :: Int -> Int -> Board -> Board
+resize l h = undefined
 
 step :: Board -> Board
 step b = undefined
@@ -252,6 +256,19 @@ instance Show a => Show (ZZ a) where
 instance Show St where
   show Alive = "X"
   show Dead  = "_"
+
+-------------------- Utility functions --------------------
+
+-- | Transform 'Index z' into the index of the @S.Seq@ that @z@ contains
+-- unless it is equivalent to current index.
+zToLix :: Z a -> Int -> Maybe Int
+zToLix z@(Z _ _ i) k
+  | i == n = Nothing
+  | i < n  = Just $ s - (n - i) - 1
+  | i > n  = Just $ i - n - 1
+  where n = k `mod` s
+        s = size z
+
 
 lookupS :: S.Seq a -> Int -> Maybe a
 lookupS s n
