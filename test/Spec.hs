@@ -1,5 +1,6 @@
 module Main where
 
+import Control.Comonad
 import Life
 import Life.Examples
 import Test.Hspec
@@ -37,6 +38,34 @@ main = hspec $ do
     it "gliders result in constant population" $
       let ps = map population $ game $ glider bSize bSize
        in take sSize ps `shouldBe` replicate sSize 5
+
+  describe "Zipper comonad implementation" $ do
+    let g  = glider 5 5
+        sg = shift N $ shift W $ g
+    it "passes first law" $ do
+      testFirstLaw g
+      testFirstLaw sg
+    it "passes second law" $ do
+      testSecondLaw g
+      testSecondLaw sg
+    it "passes third law" $ do
+      testThirdLaw g
+      testThirdLaw sg
+
+testFirstLaw :: Board -> Expectation
+testFirstLaw = shouldBe
+  <$> extract . duplicate
+  <*> id
+
+testSecondLaw :: Board -> Expectation
+testSecondLaw = shouldBe
+  <$> fmap extract . duplicate
+  <*> id
+
+testThirdLaw :: Board -> Expectation
+testThirdLaw = shouldBe
+  <$> duplicate . duplicate
+  <*> fmap duplicate . duplicate
 
 testStill :: (Int -> Int -> Board) -> Expectation
 testStill b = testStillB $ b bSize bSize
