@@ -233,11 +233,17 @@ resize :: Int -> Int -> Board -> Board
 resize l h = undefined
 
 step :: Board -> Board
-step b = undefined
+step = extend rule
+  where p = length . filter (==Alive) . neighborhood
+        rule z = case (cursor z, p z) of
+                   (Alive, 2) -> Alive
+                   (Alive, 3) -> Alive
+                   (Dead, 3)  -> Alive
+                   _          -> Dead
 
 -- | Returns the total number of living cells in a board
 population :: Board -> Int
-population = undefined -- length . filter (==Alive) . ...
+population = length . filter (==Alive) . toList
 
 -- | Check if every cell is dead (i.e., gameover)
 gameover :: Board -> Bool
