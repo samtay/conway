@@ -279,7 +279,7 @@ handleSel g = handleMove
 handleExample :: Game -> Char -> EventM n (Next Game)
 handleExample g n = continue $ fromMaybe g mg
   where mg = set time 0 .  set paused True
-              <$> (set board <$> (me <*> Just h <*> Just l) <*> Just g)
+              <$> (set board <$> (me <*> Just l <*> Just h) <*> Just g)
         me    = examples ^? ix (read [n]) <&> snd
         (l,h) = g ^. board . to size
 

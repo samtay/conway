@@ -83,8 +83,11 @@ pentadecathlon = center [ (-4,0), (-3,0), (-2,-1), (-2,1), (-1,0), (0,0)
 glider :: Int -> Int -> Board
 glider = center [(-1,-1), (0,-1), (0,1), (1,-1), (1,0)]
 
-center :: [Cell] -> Int -> Int -> Board
-center cs h l = board h l $
-  map (\(x,y) -> (x + xoff, y + yoff)) cs
+center :: [Cell] -- ^ Cells initially alive
+       -> Int -- ^ Length
+       -> Int -- ^ Height
+       -> Board
+center cs l h = board l h
+  $ map (\(x,y) -> (x + xoff, y + yoff)) cs
     where xoff = l `div` 2
           yoff = h `div` 2
