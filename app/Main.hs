@@ -128,7 +128,7 @@ drawGrid g = withBorderStyle BS.unicodeBold
           mkCol = foldr (flip (<=>) . renderSt) emptyWidget
 
           rowT :: Int
-          rowT  = fst . size $ g^.board
+          rowT  = g ^. board ^. to size ^. _2
 
           selCell :: Maybe Cell
           selCell = if (g^.focus^. to F.focusGetCurrent == Just GridVP)
@@ -281,7 +281,7 @@ handleExample g n = continue $ fromMaybe g mg
   where mg = set time 0 .  set paused True
               <$> (set board <$> (me <*> Just h <*> Just l) <*> Just g)
         me    = examples ^? ix (read [n]) <&> snd
-        (h,l) = g ^. board . to size
+        (l,h) = g ^. board . to size
 
 
 scrollEx :: Int -> EventM Name ()

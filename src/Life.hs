@@ -234,7 +234,22 @@ board l h = fromMap Dead . ins (l-1,h-1) . map (,Alive)
 --
 -- For example @resize (-1) 1@ will remove one column and add one row.
 resize :: Int -> Int -> Board -> Board
-resize l h = undefined
+resize l h = resizeH h . resizeL l
+  where resizeL l z
+          | l < 0     = z & unzz %~ dropL (-l)
+          | l > 0     = z & unzz %~ consLc l
+          | otherwise = z
+        resizeH h z
+          | h < 0     = z & unzz %~ fmap (dropL (-h))
+          | h > 0     = z & unzz %~ fmap (consLr h)
+          | otherwise = z
+        dropL :: Int -> Z a -> Z a
+        dropL l = (& zl %~ S.drop l)
+        consLr :: Int -> Z St -> Z St
+        consLr h = (& zl %~ compose h (Dead <|))
+        consLc :: Int -> Z (Z St) -> Z (Z St)
+        consLc l z = let c = fmap (const Dead) $ z ^. zc
+                      in z & zl %~ compose l (c <|)
 
 step :: Board -> Board
 step = extend rule
