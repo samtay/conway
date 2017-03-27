@@ -145,9 +145,9 @@ instance Zipper Z where
           l    = maximum . (0:) $ map fst m
           rng  = if l == 0 then [] else [l,(l-1)..1]
   shift d z@(Z l c i)
-    | S.length l == 0 = z -- shifting length zero amounts to nothing
-    | d == L          = Z (xs |> c) x xi
-    | d == R          = Z (c <| ys) y yi
+    | S.null l = z -- shifting length zero amounts to nothing
+    | d == L   = Z (xs |> c) x xi
+    | d == R   = Z (c <| ys) y yi
     where
       (x :< xs) = S.viewl l
       (ys :> y) = S.viewr l
@@ -293,12 +293,6 @@ zToLix z@(Z _ _ i) k
   | i > n  = Just $ i - n - 1
   where n = k `mod` s
         s = size z
-
-
-lookupS :: S.Seq a -> Int -> Maybe a
-lookupS s n
-  | 0 <= n && n < S.length s = Just $ S.index s n
-  | otherwise                = Nothing
 
 compose :: Int -> (a -> a) -> (a -> a)
 compose = (foldr (.) id .) . replicate
