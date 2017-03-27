@@ -74,9 +74,9 @@ minI = 100000
 
 -- | Maximum interval (microseconds)
 --
--- Corresponding speed == 0.5 frames / second
+-- Corresponding speed == 1 frames / second
 maxI :: Int
-maxI = 2000000
+maxI = 1000000
 
 -- | Mid interval (microseconds)
 midI :: Int
