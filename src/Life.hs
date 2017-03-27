@@ -98,6 +98,10 @@ class Zipper z where
   -- | Destruct to list maintaining order of @(Index z)@, e.g. @(Z ls c rs) -> ls ++ [c] ++ rs@.
   toList :: z a -> [a]
 
+  -- | Destruct a list into a mapping with indices
+  toMap :: (Comonad z) => z a -> [(Index z, a)]
+  toMap = toList . extend ((,) <$> index <*> cursor)
+
   -- | Construct zipper from mapping (provide default value so this is always safe, no bottoms)
   fromMap :: Ord (Index z) => a -> [(Index z, a)] -> z a
 

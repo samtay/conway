@@ -14,10 +14,6 @@ import Lens.Micro.TH
 import Life hiding (board)
 import qualified Life as L
 import qualified Life.Examples as LE
-import Math.Geometry.Grid (size, contains)
-import Math.Geometry.GridInternal (normalise)
-import Math.Geometry.GridMap (toList, adjust)
-import qualified Math.Geometry.GridMap as GM
 
 import Brick
 import Brick.BChan
@@ -118,13 +114,11 @@ drawUI g = [ vBox [ drawGrid g
 --
 -- BIG asterisk *** I wanted this to be reasonably performant,
 -- so I'm leveraging the fact that 'toList' returns ordered tiles.
---
 drawGrid :: Game -> Widget n
-drawGrid g =
-  withBorderStyle BS.unicodeBold $
-  B.borderWithLabel (str "Game of Life") $
-  C.center $
-  fst $ toCols (emptyWidget, toList $ g^.board)
+drawGrid g = withBorderStyle BS.unicodeBold
+  $ B.borderWithLabel (str "Game of Life")
+  $ C.center
+  $ fst $ toCols (emptyWidget, g ^. board ^. to toMap)
     where toCols :: (Widget n, [(Cell, St)]) -> (Widget n, [(Cell, St)])
           toCols (w,[]) = (w,[])
           toCols (w,xs) = let (c,cs) = splitAt rowT xs
@@ -138,7 +132,7 @@ drawGrid g =
 
           selCell :: Maybe Cell
           selCell = if (g^.focus^. to F.focusGetCurrent == Just GridVP)
-                       then Just (normalise (g^.board) $ g^.selected)
+                       then Just (normalize (g^.board) $ g^.selected)
                        else Nothing
 
           renderSt :: (Cell, St) -> Widget n
@@ -252,11 +246,11 @@ handleEvent g (VtyEvent (V.EvKey V.KEnter []))        = onlyWhenFocused g GridVP
 handleEvent g (VtyEvent (V.EvKey (V.KChar '\t') []))  = continue $ g & focus %~ F.focusNext
 handleEvent g (VtyEvent (V.EvKey (V.KChar 'n') []))   = continue $ forward g
 handleEvent g (VtyEvent (V.EvKey (V.KChar ' ') []))   = continue $ g & paused %~ not
-handleEvent g (VtyEvent (V.EvKey (V.KChar 'c') []))   = continue $ g & board %~ GM.map (const Dead)
-handleEvent g (VtyEvent (V.EvKey (V.KChar '-') []))   = continue $ g & board %~ contract 1 0 1 0
-handleEvent g (VtyEvent (V.EvKey (V.KChar '_') []))   = continue $ g & board %~ contract 0 1 0 1
-handleEvent g (VtyEvent (V.EvKey (V.KChar '=') []))   = continue $ g & board %~ expand 1 0 1 0
-handleEvent g (VtyEvent (V.EvKey (V.KChar '+') []))   = continue $ g & board %~ expand 0 1 0 1
+handleEvent g (VtyEvent (V.EvKey (V.KChar 'c') []))   = continue $ g & board %~ fmap (const Dead)
+handleEvent g (VtyEvent (V.EvKey (V.KChar '-') []))   = continue $ g & board %~ resize 0 (-1)
+handleEvent g (VtyEvent (V.EvKey (V.KChar '_') []))   = continue $ g & board %~ resize (-1) 0
+handleEvent g (VtyEvent (V.EvKey (V.KChar '=') []))   = continue $ g & board %~ resize 0 1
+handleEvent g (VtyEvent (V.EvKey (V.KChar '+') []))   = continue $ g & board %~ resize 1 0
 handleEvent g (VtyEvent (V.EvKey (V.KChar 'q') []))   = halt g
 handleEvent g (VtyEvent (V.EvKey (V.KChar n) []))
   | n `elem` ['0'..'9']                               = handleExample g n
@@ -275,7 +269,7 @@ handleSpeed g (+/-) = do
 
 handleMove :: Game -> (Cell -> Cell) -> EventM Name (Next Game)
 handleMove g mv = onlyWhenFocused g GridVP $ continue $
-     g & selected %~ (normalise (g^.board) . mv)
+     g & selected %~ (normalize (g^.board) . mv)
 
 handleSel :: Game -> EventM Name (Next Game)
 handleSel g = handleMove
