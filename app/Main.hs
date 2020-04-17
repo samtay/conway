@@ -315,7 +315,9 @@ main = do
     writeBChan chan Tick
     int <- atomically $ readTVar tv
     threadDelay int
-  customMain (V.mkVty V.defaultConfig) (Just chan) app (initialGame tv) >>= printResult
+  let buildVty = V.mkVty V.defaultConfig
+  initialVty <- buildVty
+  customMain initialVty buildVty (Just chan) app (initialGame tv) >>= printResult
 
 printResult :: Game -> IO ()
 printResult g = mapM_ putStrLn
