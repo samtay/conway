@@ -8,12 +8,12 @@
 -- Portability :  portable
 --
 -----------------------------------------------------------------------------
-{-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE Rank2Types #-}
-{-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE ConstrainedClassMethods #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE Rank2Types #-}
+{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE TypeFamilies #-}
 module Life
   (
   -- * Types and classes
@@ -34,15 +34,15 @@ module Life
   ) where
 
 import qualified Data.Foldable as F
-import Data.List (nub, intercalate)
-import Data.Maybe (mapMaybe, fromMaybe)
+import           Data.List (intercalate, nub)
+import           Data.Maybe (fromMaybe, mapMaybe)
 
-import Data.Sequence (ViewL(..), ViewR(..), (|>), (<|), (><))
+import           Control.Comonad
+import           Data.Sequence (ViewL (..), ViewR (..), (<|), (><), (|>))
 import qualified Data.Sequence as S
-import Control.Comonad
+import           Lens.Micro
 import qualified Lens.Micro.Internal as L
-import Lens.Micro
-import Lens.Micro.TH
+import           Lens.Micro.TH
 
 -- | A modular game of life board
 --
@@ -64,10 +64,12 @@ data St = Alive | Dead
 -- of the cursor. The cursor value and index are '_zc' and '_zi' respectively.
 -- This can be thought of as a circle.
 -- Warning: must have length greater than zero!
-data Z a = Z { _zl :: S.Seq a
-             , _zc :: a
-             , _zi :: Int
-             } deriving (Eq, Show)
+data Z a = Z
+  { _zl :: S.Seq a
+  , _zc :: a
+  , _zi :: Int
+  }
+  deriving (Eq, Show)
 
 newtype ZZ a = ZZ { _unzz :: Z (Z a) }
   deriving (Eq) -- TODO possibly implement equality up to shifting
@@ -92,7 +94,6 @@ class Zipper z where
   index :: z a -> Index z
 
   -- | Retrieve neighborhood of current cursor.
-  -- TODO consider keeping in Seq instead of []
   neighborhood :: z a -> [a]
 
   -- | Destruct to list maintaining order of @(Index z)@, e.g. @(Z ls c rs) -> ls ++ [c] ++ rs@.

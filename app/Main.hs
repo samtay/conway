@@ -2,34 +2,36 @@
 {-# LANGUAGE TemplateHaskell #-}
 module Main where
 
-import Control.Concurrent (threadDelay, forkIO)
+import Control.Concurrent (forkIO, threadDelay)
 import Control.Concurrent.STM
-import Control.Monad (void, forever)
+import Control.Monad (forever, void)
 import Control.Monad.IO.Class (liftIO)
-import Data.Monoid ((<>))
 import Data.Maybe (fromMaybe)
-import Lens.Micro ((^.), (^?), (&), (%~), (.~), (<&>), _1, _2, set, to, ix, over)
+import Data.Monoid ((<>))
+import Lens.Micro
+       (ix, over, set, to, (%~), (&), (.~), (<&>), (^.), (^?), _1, _2)
 import Lens.Micro.TH
 
-import Life hiding (board)
+import           Life hiding (board)
 import qualified Life as L
 import qualified Life.Examples as LE
 
-import Brick
-import Brick.BChan
-import Brick.Widgets.Core
-  ( (<+>), (<=>)
-  , hBox
-  , withBorderStyle
-  , emptyWidget
-  , padLeftRight
-  , padTopBottom
-  )
-import qualified Brick.Widgets.Center as C
-import qualified Brick.Widgets.Border as B
-import qualified Brick.Widgets.ProgressBar as P
-import qualified Brick.Widgets.Border.Style as BS
+import           Brick
+import           Brick.BChan
 import qualified Brick.Focus as F
+import qualified Brick.Widgets.Border as B
+import qualified Brick.Widgets.Border.Style as BS
+import qualified Brick.Widgets.Center as C
+import           Brick.Widgets.Core
+                 ( emptyWidget
+                 , hBox
+                 , padLeftRight
+                 , padTopBottom
+                 , withBorderStyle
+                 , (<+>)
+                 , (<=>)
+                 )
+import qualified Brick.Widgets.ProgressBar as P
 import qualified Graphics.Vty as V
 
 -- | Name resources (needed for scrollable viewport)
@@ -37,14 +39,15 @@ data Name = GridVP | ExampleVP
   deriving (Ord, Show, Eq)
 
 -- | Game state
-data Game = Game { _board    :: Board -- ^ Board state
-                 , _time     :: Int   -- ^ Time elapsed
-                 , _paused   :: Bool  -- ^ Playing vs. paused
-                 , _speed    :: Float -- ^ Speed in [0..1]
-                 , _interval :: TVar Int -- ^ Interval kept in TVar
-                 , _focus    :: F.FocusRing Name -- ^ Keeps track of grid focus
-                 , _selected :: Cell -- ^ Keeps track of cell focus
-                 }
+data Game = Game
+  { _board    :: Board -- ^ Board state
+  , _time     :: Int -- ^ Time elapsed
+  , _paused   :: Bool -- ^ Playing vs. paused
+  , _speed    :: Float -- ^ Speed in [0..1]
+  , _interval :: TVar Int -- ^ Interval kept in TVar
+  , _focus    :: F.FocusRing Name -- ^ Keeps track of grid focus
+  , _selected :: Cell -- ^ Keeps track of cell focus
+  }
 
 makeLenses ''Game
 
